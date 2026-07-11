@@ -1,6 +1,6 @@
 # Cerberus
 
-**Cerberus** is a three-headed guard dog for your CI: SAST (Semgrep), secrets (Gitleaks) and dependencies (Trivy) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when *new* findings appear — your old backlog never blocks a merge.
+**Cerberus** is a guard dog for your CI: SAST (Semgrep), secrets (Gitleaks), dependencies (Trivy), IaC misconfig (Checkov) and Dockerfile lint (Hadolint) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when *new* findings appear — your old backlog never blocks a merge.
 
 > **Status: v0.** The CLI works end-to-end (scan → merge → upload → gate); the Docker image and CI wrappers are not published yet.
 
@@ -13,8 +13,11 @@ Running scanners in CI is easy. Living with the results is not: the first scan d
 ```
 CI job ──▶ cerberus scan
              ├─ Semgrep   (SAST)
-             ├─ Gitleaks  (secrets)
-             └─ Trivy     (deps / images / IaC)
+             ├─ Gitleaks  (secrets, whole history)
+             ├─ Trivy     (dependencies, secrets, misconfig)
+             ├─ Checkov   (IaC misconfig)
+             ├─ Hadolint  (Dockerfiles)
+             └─ custom    (anything that writes SARIF)
                    │ merge → one SARIF
                    ▼
              POST to backend  ──▶ dedup, lifecycle, tasks
@@ -35,10 +38,14 @@ include:
 **GitHub** — add the action:
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0          # Gitleaks scans the whole history
 - uses: startmatter/cerberus@main
   with:
     url: ${{ secrets.K_SARIF_URL }}
     secret: ${{ secrets.K_SARIF_SECRET }}
+    # dns: 1.1.1.1,8.8.8.8  # self-hosted runners whose resolver containers can't reach
 ```
 
 CI context (repo, branch, commit, author, changed files) is detected from GitLab CI / GitHub Actions
@@ -49,6 +56,12 @@ one job line covers pushes and merge requests.
 
 Add a nightly scheduled pipeline for dependency scanning: new CVEs land in code that never changed,
 so pushes alone will not surface them.
+
+### Self-hosted runners
+
+If the runner sits behind a VPN resolver its containers cannot reach, Semgrep cannot fetch its rules
+and Trivy cannot fetch its vulnerability database — and both quietly produce an empty report. Pass
+`dns: 1.1.1.1,8.8.8.8` (GitHub) or set `--dns` on the runner's docker config (GitLab).
 
 ### Pulling a private image
 

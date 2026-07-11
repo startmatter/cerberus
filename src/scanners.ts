@@ -53,6 +53,34 @@ export function buildInvocations(config: CerberusConfig, outDir: string): Invoca
       ],
     });
   }
+  if (s.checkov.enabled) {
+    // --output-file-path takes a directory; checkov names the file itself.
+    // It also exits non-zero when it finds anything, which is not a failure —
+    // the runner prefers the report over the exit code.
+    inv.push({
+      name: "checkov",
+      output: join(outDir, "results_sarif.sarif"),
+      command: [
+        "checkov", "-d", ".", "-o", "sarif", "--output-file-path", outDir,
+        "--compact", "--quiet", ...s.checkov.args,
+      ],
+    });
+  }
+  if (s.hadolint.enabled) {
+    // hadolint takes files, not a directory, and writes to stdout. A repo with
+    // no Dockerfile must still produce a valid (empty) report, not a failure.
+    const output = join(outDir, "hadolint.sarif");
+    const extra = s.hadolint.args.join(" ");
+    inv.push({
+      name: "hadolint",
+      output,
+      command:
+        `files=$(find . -type f \\( -iname 'Dockerfile' -o -iname 'Dockerfile.*' -o -iname '*.Dockerfile' \\) ` +
+        `-not -path './node_modules/*' -not -path './.git/*'); ` +
+        `if [ -z "$files" ]; then printf '{"version":"2.1.0","runs":[]}' > ${output}; ` +
+        `else hadolint -f sarif ${extra} $files > ${output} || true; fi`,
+    });
+  }
   for (const [i, custom] of s.custom.entries()) {
     const output = join(outDir, `custom-${i}.sarif`);
     inv.push({ name: custom.name, output, command: custom.command.replaceAll("{output}", output) });

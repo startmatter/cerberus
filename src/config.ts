@@ -33,6 +33,8 @@ export function parseConfig(raw: unknown): CerberusConfig {
   const semgrep = scanner("semgrep");
   const gitleaks = scanner("gitleaks");
   const trivy = scanner("trivy");
+  const checkov = scanner("checkov");
+  const hadolint = scanner("hadolint");
 
   const custom: CustomScanner[] = [];
   for (const entry of Array.isArray(scanners.custom) ? scanners.custom : []) {
@@ -57,6 +59,8 @@ export function parseConfig(raw: unknown): CerberusConfig {
         scanners: strArray(trivy.scanners).length ? strArray(trivy.scanners) : ["vuln", "secret", "misconfig"],
         args: strArray(trivy.args),
       },
+      checkov: { enabled: enabled(checkov), args: strArray(checkov.args) },
+      hadolint: { enabled: enabled(hadolint), args: strArray(hadolint.args) },
       custom,
     },
     gate: { failOn: oneOf(gate.fail_on, GATE_POLICIES, "new-critical", "gate.fail_on") },

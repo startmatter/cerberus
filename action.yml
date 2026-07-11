@@ -25,6 +25,14 @@ inputs:
     description: Cerberus image to run.
     required: false
     default: ghcr.io/startmatter/cerberus:latest
+  dns:
+    description: >
+      DNS servers for the scan container, comma-separated. Needed on self-hosted
+      runners whose resolver the container cannot reach — without it Semgrep
+      cannot fetch its rules and Trivy cannot fetch its vulnerability database,
+      and both quietly produce nothing. Empty uses the host's resolver.
+    required: false
+    default: ""
   registry-token:
     description: >
       Token used to pull the image when it is private (the default GITHUB_TOKEN
@@ -63,7 +71,12 @@ runs:
         K_SARIF_URL: ${{ inputs.url }}
         K_SARIF_SECRET: ${{ inputs.secret }}
       run: |
-        docker run --rm \
+        dns_args=""
+        if [ -n "${{ inputs.dns }}" ]; then
+          IFS=',' read -ra servers <<< "${{ inputs.dns }}"
+          for s in "${servers[@]}"; do dns_args="$dns_args --dns $(echo "$s" | tr -d ' ')"; done
+        fi
+        docker run --rm $dns_args \
           -v "${{ github.workspace }}:/src" \
           -w "/src/${{ inputs.path }}" \
           -e K_SARIF_URL -e K_SARIF_SECRET \

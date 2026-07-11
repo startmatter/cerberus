@@ -13,24 +13,30 @@ ARG TARGETARCH
 ARG SEMGREP_VERSION=1.169.0
 ARG GITLEAKS_VERSION=8.30.1
 ARG TRIVY_VERSION=0.72.0
+ARG CHECKOV_VERSION=3.3.8
+ARG HADOLINT_VERSION=2.14.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git curl ca-certificates python3 python3-pip \
   && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir --break-system-packages semgrep==${SEMGREP_VERSION}
+RUN pip3 install --no-cache-dir --break-system-packages \
+  semgrep==${SEMGREP_VERSION} checkov==${CHECKOV_VERSION}
 
-# The two Go scanners name their release assets differently per architecture.
+# The Go/Haskell scanners each name their release assets differently per arch.
 RUN set -eux; \
   case "${TARGETARCH}" in \
-    amd64) gl_arch=x64;   tv_arch=64bit ;; \
-    arm64) gl_arch=arm64; tv_arch=ARM64 ;; \
+    amd64) gl_arch=x64;   tv_arch=64bit; hl_arch=x86_64 ;; \
+    arm64) gl_arch=arm64; tv_arch=ARM64; hl_arch=arm64 ;; \
     *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
   esac; \
   curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${gl_arch}.tar.gz" \
     | tar -xz -C /usr/local/bin gitleaks; \
   curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${tv_arch}.tar.gz" \
-    | tar -xz -C /usr/local/bin trivy
+    | tar -xz -C /usr/local/bin trivy; \
+  curl -sSfL -o /usr/local/bin/hadolint \
+    "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-${hl_arch}"; \
+  chmod +x /usr/local/bin/hadolint
 
 WORKDIR /app
 COPY --from=build /app/dist ./dist
