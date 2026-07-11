@@ -13,6 +13,12 @@ scanners:
     enabled: true
     scanners: [vuln, secret, misconfig]
     args: []
+  checkov:                     # IaC misconfig: Terraform, CloudFormation, k8s, Dockerfile
+    enabled: true
+    args: []
+  hadolint:                    # every Dockerfile in the tree
+    enabled: true
+    args: []
   # Your own checks — anything that writes SARIF:
   # custom:
   #   - name: compose-audit

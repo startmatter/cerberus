@@ -13,6 +13,8 @@ describe("parseConfig", () => {
     const c = parseConfig({});
     expect(c.scanners.semgrep).toEqual({ enabled: true, config: "p/security-audit", args: [] });
     expect(c.scanners.trivy.scanners).toEqual(["vuln", "secret", "misconfig"]);
+    expect(c.scanners.checkov.enabled).toBe(true);
+    expect(c.scanners.hadolint.enabled).toBe(true);
     expect(c.gate.failOn).toBe("new-critical");
     expect(c.upload).toEqual({ mode: "auto", partial: false });
   });
@@ -139,16 +141,30 @@ describe("upload helpers", () => {
 });
 
 describe("buildInvocations", () => {
-  it("builds argv for the three heads and shell for custom", () => {
+  it("builds argv for the built-in heads and shell for custom", () => {
     const config = parseConfig({ scanners: { custom: [{ name: "own", command: "node check.js -o {output}" }] } });
     const inv = buildInvocations(config, "/tmp/out");
-    expect(inv.map((i) => i.name)).toEqual(["semgrep", "gitleaks", "trivy", "own"]);
+    expect(inv.map((i) => i.name)).toEqual(["semgrep", "gitleaks", "trivy", "checkov", "hadolint", "own"]);
     expect(inv[0]!.command).toContain("--sarif");
-    expect(inv[3]!.command).toBe("node check.js -o /tmp/out/custom-0.sarif");
+    expect(inv[5]!.command).toBe("node check.js -o /tmp/out/custom-0.sarif");
+  });
+
+  it("reads checkov's report from the name checkov itself picks", () => {
+    const inv = buildInvocations(parseConfig({}), "/tmp/out").find((i) => i.name === "checkov")!;
+    expect(inv.output).toBe("/tmp/out/results_sarif.sarif");
+    expect(inv.command).toContain("--output-file-path");
+  });
+
+  it("hadolint writes an empty report when the repo has no Dockerfile", () => {
+    const inv = buildInvocations(parseConfig({}), "/tmp/out").find((i) => i.name === "hadolint")!;
+    expect(inv.command).toContain('"version":"2.1.0"'); // the no-Dockerfile fallback
+    expect(inv.command).toContain("hadolint -f sarif");
   });
 
   it("skips disabled scanners", () => {
-    const config = parseConfig({ scanners: { semgrep: { enabled: false }, gitleaks: { enabled: false } } });
+    const config = parseConfig({
+      scanners: { semgrep: { enabled: false }, gitleaks: { enabled: false }, checkov: { enabled: false }, hadolint: { enabled: false } },
+    });
     expect(buildInvocations(config, "/tmp/out").map((i) => i.name)).toEqual(["trivy"]);
   });
 });

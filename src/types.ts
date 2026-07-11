@@ -29,6 +29,10 @@ export interface CerberusConfig {
     semgrep: SemgrepConfig;
     gitleaks: ScannerConfig;
     trivy: TrivyConfig;
+    /** IaC misconfig: Terraform, CloudFormation, k8s, Dockerfile. */
+    checkov: ScannerConfig;
+    /** Dockerfile lint (every Dockerfile in the tree). */
+    hadolint: ScannerConfig;
     custom: CustomScanner[];
   };
   gate: { failOn: GatePolicy };
