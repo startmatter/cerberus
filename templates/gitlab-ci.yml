@@ -1,0 +1,39 @@
+# Cerberus — GitLab CI template.
+#
+# In the repo's .gitlab-ci.yml:
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/startmatter/cerberus/main/templates/gitlab-ci.yml
+#
+# Requires two CI variables (set them group-level so every repo inherits):
+#   K_SARIF_URL     — the ingest URL from the tracker's integration settings
+#   K_SARIF_SECRET  — the secret (mask it)
+#
+# Pushes to the default branch report (tasks are created/closed); every other
+# branch and merge request runs a read-only check that gates the pipeline.
+#
+# For a nightly dependency sweep, add a scheduled pipeline — new CVEs land in
+# unchanged code, so pushes alone never surface them.
+
+.cerberus:
+  image: ghcr.io/startmatter/cerberus:latest
+  variables:
+    # Full history: changed-file detection diffs against the previous commit.
+    GIT_DEPTH: "0"
+  script:
+    - cerberus scan
+  rules:
+    - if: $K_SARIF_URL == null || $K_SARIF_SECRET == null
+      when: never
+    - when: always
+
+cerberus:
+  extends: .cerberus
+  stage: test
+
+# Opt in by defining a scheduled pipeline with SECURITY_NIGHTLY=true.
+cerberus:nightly:
+  extends: .cerberus
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $SECURITY_NIGHTLY == "true"
