@@ -17,6 +17,12 @@
 # findings the change introduces. The existing backlog never blocks anyone.
 name: Cerberus
 
+# Least privilege at the top level: Checkov (CKV2_GHA_1) flags a workflow that
+# leaves it unset, and the scan job only ever reads.
+permissions:
+  contents: read
+  packages: read
+
 on:
   workflow_call:
     inputs:

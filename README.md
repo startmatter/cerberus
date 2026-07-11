@@ -38,6 +38,10 @@ include:
 **GitHub** — call the reusable workflow:
 
 ```yaml
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   security:
     uses: startmatter/cerberus/.github/workflows/scan.yml@main
