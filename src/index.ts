@@ -125,6 +125,11 @@ async function main() {
   for (const f of response.new ?? []) {
     console.error(`  NEW [${f.severity}] ${f.title}${f.file ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})` : ""}${f.taskId ? ` → task ${f.taskId}` : ""}`);
   }
+  // Findings were accepted but never became work — the run would otherwise look
+  // clean while nothing lands in anyone's queue.
+  if (s.taskFailures) {
+    console.error(`cerberus: WARNING — ${s.taskFailures} finding(s) could not be turned into tasks: ${response.taskError ?? "unknown error"}`);
+  }
 
   const gate = evaluateGate(config.gate.failOn, response);
   if (gate.failed) {
