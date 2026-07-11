@@ -9,6 +9,13 @@
 #   K_SARIF_URL     — the ingest URL from the tracker's integration settings
 #   K_SARIF_SECRET  — the secret (mask it)
 #
+# If the image is private (ghcr packages are private unless the organization
+# allows public ones), add a third group variable so the runner can pull it:
+#   DOCKER_AUTH_CONFIG (type: File is not needed — plain variable):
+#     {"auths":{"ghcr.io":{"auth":"BASE64_OF_username:github_pat_with_read:packages"}}}
+#   Build the value with:
+#     printf '%s' 'USER:TOKEN' | base64
+#
 # Pushes to the default branch report (tasks are created/closed); every other
 # branch and merge request runs a read-only check that gates the pipeline.
 #

@@ -6,11 +6,13 @@ branding:
 
 inputs:
   url:
-    description: Ingest URL from the tracker's integration settings.
-    required: true
+    description: Ingest URL from the tracker's integration settings. Not needed when mode is `off`.
+    required: false
+    default: ""
   secret:
-    description: Ingest secret (store it as a repository or organization secret).
-    required: true
+    description: Ingest secret (store it as a repository or organization secret). Not needed when mode is `off`.
+    required: false
+    default: ""
   path:
     description: Directory to scan.
     required: false
@@ -23,6 +25,13 @@ inputs:
     description: Cerberus image to run.
     required: false
     default: ghcr.io/startmatter/cerberus:latest
+  registry-token:
+    description: >
+      Token used to pull the image when it is private (the default GITHUB_TOKEN
+      works for images in the same organization; needs the `packages: read`
+      permission on the job). Leave empty for a public image.
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: composite
@@ -32,6 +41,21 @@ runs:
     - name: Deepen history
       shell: bash
       run: git -C "${{ github.workspace }}" fetch --deepen=2 --quiet || true
+
+    # ghcr images are private unless the org allows public packages; an
+    # anonymous pull of a private image fails with 403.
+    - name: Log in to the registry
+      if: inputs.registry-token != ''
+      shell: bash
+      env:
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+      run: |
+        registry="${{ inputs.image }}"
+        registry="${registry%%/*}"
+        case "$registry" in
+          *.*) echo "$REGISTRY_TOKEN" | docker login "$registry" -u "${{ github.actor }}" --password-stdin ;;
+          *) echo "cerberus: image has no registry host, skipping login" ;;
+        esac
 
     - name: Run Cerberus
       shell: bash
