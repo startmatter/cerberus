@@ -50,6 +50,17 @@ one job line covers pushes and merge requests.
 Add a nightly scheduled pipeline for dependency scanning: new CVEs land in code that never changed,
 so pushes alone will not surface them.
 
+### Pulling a private image
+
+Container packages are private by default, and some organizations disallow public ones. Then the
+runner has to authenticate:
+
+- **GitLab** — add a `DOCKER_AUTH_CONFIG` CI variable (group-level):
+  `{"auths":{"ghcr.io":{"auth":"<base64 of user:token>"}}}` where the token is a GitHub PAT with
+  `read:packages`.
+- **GitHub** — nothing to do: the action logs in with the job's `GITHUB_TOKEN`. Give the job
+  `permissions: packages: read`.
+
 Configuration lives in [`cerberus.yml`](cerberus.example.yml) in the repo root — scanners, extra args,
 custom SARIF-emitting checks, gate policy.
 

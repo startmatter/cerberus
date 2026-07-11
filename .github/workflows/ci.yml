@@ -38,3 +38,17 @@ jobs:
         run: |
           docker run --rm --entrypoint sh cerberus:ci -c \
             'cerberus version && semgrep --version && gitleaks version && trivy --version'
+
+  # Dogfood: run the published image on this repo through the action itself.
+  # Also exercises the private-image pull path — ghcr packages are private
+  # unless the org allows public ones, so an unauthenticated pull would 403.
+  dogfood:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          mode: "off"
