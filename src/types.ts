@@ -57,6 +57,8 @@ export interface UploadResponse {
   baseline?: boolean;
   truncated?: boolean;
   error?: string;
+  /** Set when the backend accepted findings but could not turn them into work. */
+  taskError?: string;
   summary?: {
     total: number;
     new: number;
@@ -65,6 +67,7 @@ export interface UploadResponse {
     fixed: number;
     reopened: number;
     tasksCreated: number;
+    taskFailures?: number;
   };
   new?: Array<{
     title: string;
