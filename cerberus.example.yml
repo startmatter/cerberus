@@ -1,0 +1,27 @@
+# Cerberus config — copy to cerberus.yml in the repo root. Every key is
+# optional; a missing file means all defaults below.
+
+scanners:
+  semgrep:
+    enabled: true
+    config: p/security-audit   # ruleset, fetched at runtime
+    args: []                   # extra CLI args, e.g. ["--exclude", "fixtures"]
+  gitleaks:
+    enabled: true
+    args: []
+  trivy:
+    enabled: true
+    scanners: [vuln, secret, misconfig]
+    args: []
+  # Your own checks — anything that writes SARIF:
+  # custom:
+  #   - name: compose-audit
+  #     command: node scripts/compose-audit.js --sarif-out {output}
+
+gate:
+  fail_on: new-critical        # new-critical | new-high | any-new | never
+
+upload:
+  mode: auto                   # auto: report on the default branch, check elsewhere,
+                               # off when running locally. Also: report | check | off
+  partial: false               # true for diff-limited scans (backend skips auto-close)

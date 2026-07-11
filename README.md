@@ -2,7 +2,7 @@
 
 **Cerberus** is a three-headed guard dog for your CI: SAST (Semgrep), secrets (Gitleaks) and dependencies (Trivy) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when *new* findings appear — your old backlog never blocks a merge.
 
-> **Status: early development.** The contract below is what we are building; nothing is released yet.
+> **Status: v0.** The CLI works end-to-end (scan → merge → upload → gate); the Docker image and CI wrappers are not published yet.
 
 ## Why another scanner wrapper
 
@@ -23,28 +23,27 @@ CI job ──▶ cerberus scan
              exit code by gate policy (fail_on: new-critical)
 ```
 
-## Planned usage
+## Usage
 
 ```yaml
 # .gitlab-ci.yml
 security:
   image: ghcr.io/startmatter/cerberus
+  variables:
+    GIT_DEPTH: "0"
   script: [cerberus scan]
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 ```
 
-```yaml
-# cerberus.yml
-scanners:
-  semgrep:  { config: p/security-audit }
-  gitleaks: {}
-  trivy:    { scanners: [vuln, secret, misconfig] }
-gate:
-  fail_on: new-critical   # new-critical | new-high | any-new | never
-```
+CI context (repo, branch, commit, author, changed files) is detected from GitLab CI / GitHub Actions
+environment variables. `K_SARIF_URL` and `K_SARIF_SECRET` must be set as CI variables. In `auto` mode
+the default branch reports (creates/closes tasks) and every other branch checks (read-only gate) — so
+the same job line works for pushes and merge requests.
 
-Locally: `docker run -v $(pwd):/src ghcr.io/startmatter/cerberus scan` — prints a findings table, uploads nothing unless you pass `--upload`.
+Configuration lives in [`cerberus.yml`](cerberus.example.yml) in the repo root — scanners, extra args,
+custom SARIF-emitting checks, gate policy.
+
+Locally: `docker run -v $(pwd):/src ghcr.io/startmatter/cerberus scan` — prints a findings table,
+uploads nothing unless you pass `--upload`. Exit codes: 0 clean, 1 gate failed, 2 runtime error.
 
 ## Design principles
 
@@ -55,10 +54,11 @@ Locally: `docker run -v $(pwd):/src ghcr.io/startmatter/cerberus scan` — print
 
 ## Roadmap
 
-- [ ] v0: CLI — run scanners, merge SARIF, upload, gate on the response
-- [ ] Docker image with pinned scanner versions
+- [x] v0: CLI — run scanners, merge SARIF, upload, gate on the response
+- [x] Dockerfile with pinned scanner versions
+- [x] `check` mode for merge requests (classify against baseline, no writes)
+- [ ] Published image on ghcr.io
 - [ ] GitLab CI template and GitHub composite action
-- [ ] `check` mode for merge requests (classify against baseline, no writes)
 - [ ] MR/PR comments with the delta table
 - [ ] More heads: Hadolint, Checkov, license audit, Zizmor
 
