@@ -25,19 +25,30 @@ CI job ──▶ cerberus scan
 
 ## Usage
 
+**GitLab** — include the template:
+
 ```yaml
-# .gitlab-ci.yml
-security:
-  image: ghcr.io/startmatter/cerberus
-  variables:
-    GIT_DEPTH: "0"
-  script: [cerberus scan]
+include:
+  - remote: https://raw.githubusercontent.com/startmatter/cerberus/main/templates/gitlab-ci.yml
+```
+
+**GitHub** — add the action:
+
+```yaml
+- uses: startmatter/cerberus@main
+  with:
+    url: ${{ secrets.K_SARIF_URL }}
+    secret: ${{ secrets.K_SARIF_SECRET }}
 ```
 
 CI context (repo, branch, commit, author, changed files) is detected from GitLab CI / GitHub Actions
-environment variables. `K_SARIF_URL` and `K_SARIF_SECRET` must be set as CI variables. In `auto` mode
+environment variables. `K_SARIF_URL` and `K_SARIF_SECRET` come from the tracker's integration settings —
+set them group-level (GitLab) or as org secrets (GitHub) so every repo inherits them. In `auto` mode
 the default branch reports (creates/closes tasks) and every other branch checks (read-only gate) — so
-the same job line works for pushes and merge requests.
+one job line covers pushes and merge requests.
+
+Add a nightly scheduled pipeline for dependency scanning: new CVEs land in code that never changed,
+so pushes alone will not surface them.
 
 Configuration lives in [`cerberus.yml`](cerberus.example.yml) in the repo root — scanners, extra args,
 custom SARIF-emitting checks, gate policy.
@@ -57,8 +68,8 @@ uploads nothing unless you pass `--upload`. Exit codes: 0 clean, 1 gate failed, 
 - [x] v0: CLI — run scanners, merge SARIF, upload, gate on the response
 - [x] Dockerfile with pinned scanner versions
 - [x] `check` mode for merge requests (classify against baseline, no writes)
-- [ ] Published image on ghcr.io
-- [ ] GitLab CI template and GitHub composite action
+- [x] GitLab CI template and GitHub composite action
+- [x] Image published to ghcr.io on every push to main
 - [ ] MR/PR comments with the delta table
 - [ ] More heads: Hadolint, Checkov, license audit, Zizmor
 

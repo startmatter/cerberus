@@ -1,0 +1,48 @@
+name: Cerberus security scan
+description: Run Semgrep, Gitleaks and Trivy, report findings to your tracker and gate the merge on new ones.
+branding:
+  icon: shield
+  color: gray-dark
+
+inputs:
+  url:
+    description: Ingest URL from the tracker's integration settings.
+    required: true
+  secret:
+    description: Ingest secret (store it as a repository or organization secret).
+    required: true
+  path:
+    description: Directory to scan.
+    required: false
+    default: "."
+  mode:
+    description: auto | report | check | off. Default auto — report on the default branch, check elsewhere.
+    required: false
+    default: auto
+  image:
+    description: Cerberus image to run.
+    required: false
+    default: ghcr.io/startmatter/cerberus:latest
+
+runs:
+  using: composite
+  steps:
+    # Changed-file detection diffs against the previous commit, so the scan
+    # needs more than the default single-commit checkout.
+    - name: Deepen history
+      shell: bash
+      run: git -C "${{ github.workspace }}" fetch --deepen=2 --quiet || true
+
+    - name: Run Cerberus
+      shell: bash
+      env:
+        K_SARIF_URL: ${{ inputs.url }}
+        K_SARIF_SECRET: ${{ inputs.secret }}
+      run: |
+        docker run --rm \
+          -v "${{ github.workspace }}:/src" \
+          -w "/src/${{ inputs.path }}" \
+          -e K_SARIF_URL -e K_SARIF_SECRET \
+          -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_REF_NAME -e GITHUB_HEAD_REF \
+          -e GITHUB_SHA -e GITHUB_ACTOR -e GITHUB_DEFAULT_BRANCH="${{ github.event.repository.default_branch }}" \
+          "${{ inputs.image }}" scan --mode "${{ inputs.mode }}"
