@@ -102,6 +102,7 @@ uploads nothing unless you pass `--upload`. Exit codes: 0 clean, 1 gate failed, 
 
 - **Stateless.** Cerberus scans everything and sends everything. History, dedup, baselines and suppression live in the backend.
 - **Delta gate.** Pipelines fail only on findings introduced by the change. A pre-existing backlog never blocks a merge.
+- **Says what it found.** Every run writes a report to the job summary, and on a pull request posts it as a comment (replacing its own previous one): each new finding with severity, file:line and a link to the task it created.
 - **No second UI.** Triage happens in your tracker: close a task as *declined* and the finding is suppressed forever; close it as *done* and the next scan verifies the fix.
 - **Bring your own backend.** The upload contract is a documented JSON envelope around SARIF; any backend implementing it works.
 
@@ -112,7 +113,7 @@ uploads nothing unless you pass `--upload`. Exit codes: 0 clean, 1 gate failed, 
 - [x] `check` mode for merge requests (classify against baseline, no writes)
 - [x] GitLab CI template and GitHub composite action
 - [x] Image published to ghcr.io on every push to main
-- [ ] MR/PR comments with the delta table
+- [x] Pull-request comment + job summary with the delta table and links to the tasks
 - [ ] More heads: Hadolint, Checkov, license audit, Zizmor
 
 Scanner rules (e.g. the Semgrep registry) are fetched at runtime and are licensed by their respective owners; Cerberus does not bundle them.

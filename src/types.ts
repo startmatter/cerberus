@@ -75,6 +75,9 @@ export interface UploadResponse {
     file: string | null;
     line: number | null;
     taskId: string | null;
+    /** Human-facing task id (e.g. SID/T/12) and a link straight to it. */
+    taskKey?: string | null;
+    taskUrl?: string | null;
   }>;
 }
 
@@ -85,4 +88,9 @@ export interface ScannerRun {
   sarif?: unknown;
   error?: string;
   durationMs: number;
+}
+
+export interface GateResult {
+  failed: boolean;
+  reason?: string;
 }

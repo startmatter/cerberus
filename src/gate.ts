@@ -1,11 +1,8 @@
 /** The merge gate: fail the pipeline only on NEW findings, by policy. */
 
-import type { GatePolicy, UploadResponse } from "./types.js";
+import type { GatePolicy, GateResult, UploadResponse } from "./types.js";
 
-export interface GateResult {
-  failed: boolean;
-  reason?: string;
-}
+export type { GateResult };
 
 const FAIL_SEVERITIES: Record<Exclude<GatePolicy, "never">, Set<string>> = {
   "new-critical": new Set(["critical"]),

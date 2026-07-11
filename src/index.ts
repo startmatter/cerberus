@@ -16,6 +16,8 @@ import { mergeSarif } from "./merge.js";
 import { targetFromEnv, buildEnvelope, upload } from "./upload.js";
 import { evaluateGate } from "./gate.js";
 import { flattenFindings, renderTable } from "./table.js";
+import { buildReport } from "./report.js";
+import { writeJobSummary, prTargetFromEnv, upsertPrComment } from "./publish.js";
 
 const HELP = `cerberus — security scan orchestrator and merge gate
 
@@ -123,7 +125,9 @@ async function main() {
     (s.tasksCreated ? ` · ${s.tasksCreated} task(s) created` : ""),
   );
   for (const f of response.new ?? []) {
-    console.error(`  NEW [${f.severity}] ${f.title}${f.file ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})` : ""}${f.taskId ? ` → task ${f.taskId}` : ""}`);
+    const where = f.file ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})` : "";
+    const task = f.taskUrl ? ` → ${f.taskKey ?? "task"} ${f.taskUrl}` : f.taskId ? ` → task ${f.taskId}` : "";
+    console.error(`  NEW [${f.severity}] ${f.title}${where}${task}`);
   }
   // Findings were accepted but never became work — the run would otherwise look
   // clean while nothing lands in anyone's queue.
@@ -132,6 +136,21 @@ async function main() {
   }
 
   const gate = evaluateGate(config.gate.failOn, response);
+
+  // Publish before exiting: a failed gate is exactly when the reader needs the
+  // detail, and process.exit() below would skip anything after it.
+  const report = buildReport(ctx, response, gate);
+  if (writeJobSummary(report)) console.error("cerberus: report written to the job summary");
+  const pr = prTargetFromEnv();
+  if (pr) {
+    const outcome = await upsertPrComment(pr, report);
+    console.error(
+      outcome === "failed"
+        ? "cerberus: could not comment on the pull request (needs pull-requests: write)"
+        : `cerberus: report ${outcome} on PR #${pr.prNumber}`,
+    );
+  }
+
   if (gate.failed) {
     console.error(`cerberus: GATE FAILED (${config.gate.failOn}): ${gate.reason}`);
     process.exit(1);

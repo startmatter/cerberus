@@ -70,6 +70,9 @@ runs:
       env:
         K_SARIF_URL: ${{ inputs.url }}
         K_SARIF_SECRET: ${{ inputs.secret }}
+        # Used to post the scan report on the pull request. Read-only without
+        # `pull-requests: write`, in which case the report stays in the summary.
+        GITHUB_TOKEN: ${{ inputs.registry-token || github.token }}
       run: |
         dns_args=""
         if [ -n "${{ inputs.dns }}" ]; then
@@ -78,8 +81,11 @@ runs:
         fi
         docker run --rm $dns_args \
           -v "${{ github.workspace }}:/src" \
+          -v "${GITHUB_STEP_SUMMARY}:/tmp/summary.md" \
           -w "/src/${{ inputs.path }}" \
           -e K_SARIF_URL -e K_SARIF_SECRET \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_REF \
+          -e GITHUB_STEP_SUMMARY=/tmp/summary.md \
           -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_REF_NAME -e GITHUB_HEAD_REF \
           -e GITHUB_SHA -e GITHUB_ACTOR -e GITHUB_DEFAULT_BRANCH="${{ github.event.repository.default_branch }}" \
           "${{ inputs.image }}" scan --mode "${{ inputs.mode }}"
