@@ -1,0 +1,96 @@
+# Reusable Cerberus scan + merge gate.
+#
+# Call it from a repository like this:
+#
+#   jobs:
+#     security:
+#       uses: startmatter/cerberus/.github/workflows/scan.yml@main
+#       with:
+#         runner: self-hosted
+#         dns: 1.1.1.1,8.8.8.8      # self-hosted runners behind a VPN resolver
+#       secrets:
+#         K_SARIF_URL: ${{ secrets.K_SARIF_URL }}
+#         K_SARIF_SECRET: ${{ secrets.K_SARIF_SECRET }}
+#
+# The default branch reports (tasks are created, fixed findings close); every
+# other branch and pull request runs a read-only check that gates the merge on
+# findings the change introduces. The existing backlog never blocks anyone.
+name: Cerberus
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "Runner label: ubuntu-latest, or self-hosted"
+        type: string
+        default: ubuntu-latest
+        required: false
+      mode:
+        description: "auto | report | check | off. auto reports on the default branch and checks elsewhere."
+        type: string
+        default: auto
+        required: false
+      dns:
+        description: "Comma-separated DNS servers for the scan container. Needed when the runner's resolver is unreachable from containers — without it Semgrep fetches no rules and Trivy no vulnerability database, and both quietly produce nothing."
+        type: string
+        default: ""
+        required: false
+      path:
+        description: "Directory to scan."
+        type: string
+        default: "."
+        required: false
+      image:
+        description: "Cerberus image to run."
+        type: string
+        default: ghcr.io/startmatter/cerberus:latest
+        required: false
+    # Declared explicitly, not inherited: `secrets: inherit` does not cross
+    # organization boundaries, and callers may live in a different org.
+    secrets:
+      K_SARIF_URL:
+        required: false
+      K_SARIF_SECRET:
+        required: false
+      # Only needed when the image is private and the caller is in another
+      # organization — the job's own token cannot read it then.
+      REGISTRY_TOKEN:
+        required: false
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Gitleaks scans the whole history
+
+      # Merging this workflow before the ingest secrets exist must not turn
+      # every pipeline red — say so and skip instead.
+      - name: Check configuration
+        id: cfg
+        env:
+          URL: ${{ secrets.K_SARIF_URL }}
+          SECRET: ${{ secrets.K_SARIF_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "::warning::K_SARIF_URL / K_SARIF_SECRET are not set — skipping the scan"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Cerberus
+        if: steps.cfg.outputs.configured == 'true'
+        uses: startmatter/cerberus@main
+        with:
+          url: ${{ secrets.K_SARIF_URL }}
+          secret: ${{ secrets.K_SARIF_SECRET }}
+          mode: ${{ inputs.mode }}
+          dns: ${{ inputs.dns }}
+          path: ${{ inputs.path }}
+          image: ${{ inputs.image }}
+          registry-token: ${{ secrets.REGISTRY_TOKEN || github.token }}

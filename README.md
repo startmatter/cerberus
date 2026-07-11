@@ -35,7 +35,18 @@ include:
   - remote: https://raw.githubusercontent.com/startmatter/cerberus/main/templates/gitlab-ci.yml
 ```
 
-**GitHub** — add the action:
+**GitHub** — call the reusable workflow:
+
+```yaml
+jobs:
+  security:
+    uses: startmatter/cerberus/.github/workflows/scan.yml@main
+    secrets:
+      K_SARIF_URL: ${{ secrets.K_SARIF_URL }}
+      K_SARIF_SECRET: ${{ secrets.K_SARIF_SECRET }}
+```
+
+Or drive the action directly when you need control over the surrounding job:
 
 ```yaml
 - uses: actions/checkout@v4
@@ -71,8 +82,11 @@ runner has to authenticate:
 - **GitLab** — add a `DOCKER_AUTH_CONFIG` CI variable (group-level):
   `{"auths":{"ghcr.io":{"auth":"<base64 of user:token>"}}}` where the token is a GitHub PAT with
   `read:packages`.
-- **GitHub** — nothing to do: the action logs in with the job's `GITHUB_TOKEN`. Give the job
-  `permissions: packages: read`.
+- **GitHub, same organization** — nothing to do: the action logs in with the job's `GITHUB_TOKEN`.
+  Give the job `permissions: packages: read`.
+- **GitHub, another organization** — a repository's own token cannot read another org's private
+  package. Pass a PAT with `read:packages` as the `REGISTRY_TOKEN` secret (reusable workflow) or
+  `registry-token` input (action).
 
 Configuration lives in [`cerberus.yml`](cerberus.example.yml) in the repo root — scanners, extra args,
 custom SARIF-emitting checks, gate policy.
