@@ -88,6 +88,42 @@ describe("mergeSarif", () => {
     expect(results).toBe(3);
     expect(sarif.version).toBe("2.1.0");
   });
+
+  it("keeps only referenced rules and rewrites ruleIndex", () => {
+    // Scanners embed their whole catalogue; only the matched rules may ship.
+    const log = {
+      runs: [{
+        tool: { driver: { name: "semgrep", rules: [
+          { id: "unused-1", help: { markdown: "x".repeat(5000) } },
+          { id: "hit-a", properties: { "security-severity": "9.1" }, help: { markdown: "x".repeat(5000) } },
+          { id: "unused-2" },
+          { id: "hit-b", helpUri: "https://example.com/b" },
+        ] } },
+        results: [
+          { ruleId: "hit-b", ruleIndex: 3, message: { text: "b" } },
+          { ruleId: "hit-a", ruleIndex: 1, message: { text: "a" } },
+          { ruleId: "hit-a", ruleIndex: 1, message: { text: "a again" } },
+        ],
+      }],
+    };
+    const { sarif } = mergeSarif([log]);
+    const run = sarif.runs[0] as { tool: { driver: { rules: Array<Record<string, unknown>> } }; results: Array<Record<string, unknown>> };
+
+    expect(run.tool.driver.rules.map((r) => r.id)).toEqual(["hit-b", "hit-a"]);
+    // The severity source survives; the prose does not.
+    expect(run.tool.driver.rules[1]!.properties).toEqual({ "security-severity": "9.1" });
+    expect(run.tool.driver.rules[1]!.help).toBeUndefined();
+    // Indices now point at the pruned array.
+    expect(run.results.map((r) => r.ruleIndex)).toEqual([0, 1, 1]);
+    expect(JSON.stringify(sarif)).not.toContain("xxxxx");
+  });
+
+  it("drops a ruleIndex that cannot be resolved rather than mispointing it", () => {
+    const log = { runs: [{ tool: { driver: { rules: [{ id: "a" }] } }, results: [{ ruleIndex: 7, message: { text: "?" } }] }] };
+    const { sarif } = mergeSarif([log]);
+    const run = sarif.runs[0] as { results: Array<Record<string, unknown>> };
+    expect(run.results[0]!.ruleIndex).toBeUndefined();
+  });
 });
 
 describe("evaluateGate", () => {
