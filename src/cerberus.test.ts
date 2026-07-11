@@ -6,6 +6,8 @@ import { evaluateGate } from "./gate.js";
 import { buildEnvelope, targetFromEnv } from "./upload.js";
 import { buildInvocations } from "./scanners.js";
 import { flattenFindings } from "./table.js";
+import { buildReport, COMMENT_MARKER } from "./report.js";
+import { prTargetFromEnv } from "./publish.js";
 import type { UploadResponse } from "./types.js";
 
 describe("parseConfig", () => {
@@ -218,5 +220,66 @@ describe("flattenFindings", () => {
     });
     expect(findings[0]).toMatchObject({ severity: "critical", location: "a.ts:3" });
     expect(findings[1]!.severity).toBe("info");
+  });
+});
+
+describe("buildReport", () => {
+  const ctx = { provider: "github" as const, repo: "web", branch: "f", defaultBranch: "main", changedFiles: [] };
+  const base = (over: Partial<UploadResponse>): UploadResponse => ({
+    ok: true,
+    summary: { total: 10, new: 0, known: 10, suppressed: 0, fixed: 0, reopened: 0, tasksCreated: 0 },
+    new: [],
+    ...over,
+  });
+
+  it("frames a baseline as recorded, not as work", () => {
+    const md = buildReport(ctx, base({ baseline: true }), { failed: false });
+    expect(md).toContain(COMMENT_MARKER);
+    expect(md).toContain("baseline");
+    expect(md).not.toContain("Gate failed");
+  });
+
+  it("tables the new findings with location and a link to the task", () => {
+    const response = base({
+      summary: { total: 12, new: 2, known: 10, suppressed: 0, fixed: 1, reopened: 0, tasksCreated: 1 },
+      new: [
+        { title: "SQL injection", severity: "critical", file: "src/db.ts", line: 42, taskId: "t1", taskKey: "SID/T/12", taskUrl: "https://k.example/SMK/SID/T/12" },
+        { title: "Weak hash", severity: "low", file: null, line: null, taskId: null },
+      ],
+    });
+    const md = buildReport(ctx, response, { failed: true, reason: "1 new critical finding(s)" });
+
+    expect(md).toContain("Gate failed");
+    expect(md).toContain("[SID/T/12](https://k.example/SMK/SID/T/12)");
+    expect(md).toContain("`src/db.ts:42`");
+    // Most severe first.
+    expect(md.indexOf("SQL injection")).toBeLessThan(md.indexOf("Weak hash"));
+  });
+
+  it("says so when nothing is new", () => {
+    expect(buildReport(ctx, base({}), { failed: false })).toContain("No new findings");
+  });
+
+  it("escapes a pipe so one finding cannot break the table", () => {
+    const response = base({
+      summary: { total: 1, new: 1, known: 0, suppressed: 0, fixed: 0, reopened: 0, tasksCreated: 0 },
+      new: [{ title: "a | b", severity: "high", file: null, line: null, taskId: null }],
+    });
+    expect(buildReport(ctx, response, { failed: false })).toContain("a \\| b");
+  });
+});
+
+describe("prTargetFromEnv", () => {
+  it("recognises a pull request run", () => {
+    const t = prTargetFromEnv({
+      GITHUB_ACTIONS: "true", GITHUB_TOKEN: "x", GITHUB_REPOSITORY: "org/repo", GITHUB_REF: "refs/pull/42/merge",
+    });
+    expect(t).toMatchObject({ repo: "org/repo", prNumber: 42, api: "https://api.github.com" });
+  });
+
+  it("is null off a pull request, or without a token", () => {
+    expect(prTargetFromEnv({ GITHUB_ACTIONS: "true", GITHUB_TOKEN: "x", GITHUB_REPOSITORY: "o/r", GITHUB_REF: "refs/heads/main" })).toBeNull();
+    expect(prTargetFromEnv({ GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "o/r", GITHUB_REF: "refs/pull/1/merge" })).toBeNull();
+    expect(prTargetFromEnv({})).toBeNull();
   });
 });

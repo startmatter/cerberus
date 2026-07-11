@@ -22,6 +22,7 @@ name: Cerberus
 permissions:
   contents: read
   packages: read
+  pull-requests: write   # the scan report is posted on the pull request
 
 on:
   workflow_call:
@@ -69,6 +70,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
