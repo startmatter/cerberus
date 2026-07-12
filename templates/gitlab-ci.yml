@@ -23,7 +23,12 @@
 # unchanged code, so pushes alone never surface them.
 
 .cerberus:
-  image: ghcr.io/startmatter/cerberus:latest
+  image:
+    name: ghcr.io/startmatter/cerberus:latest
+    # The runner starts the job through a shell, so the image's own entrypoint
+    # must step aside — otherwise it receives the shell's flags as arguments
+    # and the job dies with "Unknown option '-c'".
+    entrypoint: [""]
   variables:
     # Full history: changed-file detection diffs against the previous commit.
     GIT_DEPTH: "0"
