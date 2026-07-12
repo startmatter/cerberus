@@ -23,7 +23,12 @@
 # unchanged code, so pushes alone never surface them.
 
 .cerberus:
-  image: ghcr.io/startmatter/cerberus:latest
+  image:
+    name: ghcr.io/startmatter/cerberus:latest
+    # The runner starts the job through a shell, so the image's own entrypoint
+    # must step aside — otherwise it receives the shell's flags as arguments
+    # and the job dies with "Unknown option '-c'".
+    entrypoint: [""]
   variables:
     # Full history: changed-file detection diffs against the previous commit.
     GIT_DEPTH: "0"
@@ -36,11 +41,13 @@
 
 cerberus:
   extends: .cerberus
-  stage: test
+  # `.post` exists in every pipeline, whatever stages the project defines —
+  # a hardcoded stage breaks the projects that do not happen to have it.
+  stage: .post
 
 # Opt in by defining a scheduled pipeline with SECURITY_NIGHTLY=true.
 cerberus:nightly:
   extends: .cerberus
-  stage: test
+  stage: .post
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $SECURITY_NIGHTLY == "true"
