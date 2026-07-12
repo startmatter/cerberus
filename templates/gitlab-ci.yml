@@ -41,11 +41,13 @@
 
 cerberus:
   extends: .cerberus
-  stage: test
+  # `.post` exists in every pipeline, whatever stages the project defines —
+  # a hardcoded stage breaks the projects that do not happen to have it.
+  stage: .post
 
 # Opt in by defining a scheduled pipeline with SECURITY_NIGHTLY=true.
 cerberus:nightly:
   extends: .cerberus
-  stage: test
+  stage: .post
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $SECURITY_NIGHTLY == "true"
