@@ -18,10 +18,17 @@ interface SarifRun {
   [key: string]: unknown;
 }
 
-/** Rule fields the backend uses (severity, docs) or that stay cheap. Everything
- *  else — `help`, `fullDescription`, `relationships` — is prose we would ship
- *  by the megabyte. */
-const KEPT_RULE_FIELDS = ["id", "name", "shortDescription", "helpUri", "properties", "defaultConfiguration"];
+/**
+ * Rule fields worth their weight: severity (`properties`), the human title
+ * (`shortDescription`), the explanation (`fullDescription`) and the docs link.
+ *
+ * `help` is dropped — scanners repeat the whole advisory there, which is what
+ * made these reports weigh tens of megabytes. `fullDescription` is a sentence
+ * or two and is what a reader actually needs.
+ */
+const KEPT_RULE_FIELDS = [
+  "id", "name", "shortDescription", "fullDescription", "helpUri", "properties", "defaultConfiguration",
+];
 
 function slimRule(rule: SarifRule): SarifRule {
   const out: SarifRule = {};
