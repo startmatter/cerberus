@@ -1,8 +1,12 @@
-# Cerberus
+<p align="center">
+  <img src="cerberus_logo_transparent.png" alt="Cerberus" width="300">
+</p>
+
+<h1 align="center">Cerberus</h1>
 
 **Cerberus** is a guard dog for your CI: SAST (Semgrep), secrets (Gitleaks), dependencies (Trivy), IaC misconfig (Checkov) and Dockerfile lint (Hadolint) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when *new* findings appear — your old backlog never blocks a merge.
 
-> **Status: v0.** The CLI works end-to-end (scan → merge → upload → gate); the Docker image and CI wrappers are not published yet.
+> **Status: in production.** The image is published as `ghcr.io/startmatter/cerberus:latest` (linux/amd64 + arm64), the GitHub and GitLab wrappers are in use, and the pipeline scans ~110 repositories daily.
 
 ## Why another scanner wrapper
 
