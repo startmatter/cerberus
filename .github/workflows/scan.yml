@@ -17,12 +17,14 @@
 # findings the change introduces. The existing backlog never blocks anyone.
 name: Cerberus
 
-# Least privilege at the top level: Checkov (CKV2_GHA_1) flags a workflow that
-# leaves it unset, and the scan job only ever reads.
-permissions:
-  contents: read
-  packages: read
-  pull-requests: write   # the scan report is posted on the pull request
+# Permissions are inherited from the caller on purpose. Declaring them here
+# *demands* them: a repository whose organization grants workflows read-only
+# access cannot satisfy `pull-requests: write`, and GitHub rejects the run
+# before a single job starts — the scan never happens at all.
+#
+# Inheriting means the scan always runs. Where the caller's token can write to
+# pull requests, the report is posted as a comment; where it cannot, the report
+# still lands in the job summary.
 
 on:
   workflow_call:
@@ -67,10 +69,6 @@ on:
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
-    permissions:
-      contents: read
-      packages: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
