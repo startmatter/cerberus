@@ -38,10 +38,6 @@ include:
 **GitHub** — call the reusable workflow:
 
 ```yaml
-permissions:
-  contents: read
-  packages: read
-
 jobs:
   security:
     uses: startmatter/cerberus/.github/workflows/scan.yml@main
@@ -49,6 +45,10 @@ jobs:
       K_SARIF_URL: ${{ secrets.K_SARIF_URL }}
       K_SARIF_SECRET: ${{ secrets.K_SARIF_SECRET }}
 ```
+
+The scan report is posted as a pull-request comment when the caller's token may write to
+pull requests, and lands in the job summary either way. Organizations that grant workflows
+read-only access get the summary only — the scan itself always runs.
 
 Or drive the action directly when you need control over the surrounding job:
 
