@@ -89,3 +89,15 @@ runs:
           -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_REF_NAME -e GITHUB_HEAD_REF \
           -e GITHUB_SHA -e GITHUB_ACTOR -e GITHUB_DEFAULT_BRANCH="${{ github.event.repository.default_branch }}" \
           "${{ inputs.image }}" scan --mode "${{ inputs.mode }}"
+
+    # The container runs as root over the mounted workspace, so anything a
+    # scanner leaves behind is owned by root. The next `actions/checkout` runs
+    # as the runner's user, cannot delete those files, and fails the job —
+    # every job, not only this one. Hand the workspace back before leaving.
+    - name: Restore workspace ownership
+      if: always()
+      shell: bash
+      run: |
+        owner=$(stat -c '%u:%g' "${{ github.workspace }}")
+        docker run --rm -v "${{ github.workspace }}:/src" \
+          --entrypoint chown "${{ inputs.image }}" -R "$owner" /src || true

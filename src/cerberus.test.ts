@@ -193,6 +193,14 @@ describe("buildInvocations", () => {
     expect(inv.command).toContain("--output-file-path");
   });
 
+  it("keeps checkov out of the scanned directory", () => {
+    // github_configuration writes `github_conf/` into the workspace as root,
+    // which breaks the next checkout on a self-hosted runner.
+    const inv = buildInvocations(parseConfig({}), "/tmp/out").find((i) => i.name === "checkov")!;
+    const argv = inv.command as string[];
+    expect(argv[argv.indexOf("--skip-framework") + 1]).toBe("github_configuration");
+  });
+
   it("hadolint writes an empty report when the repo has no Dockerfile", () => {
     const inv = buildInvocations(parseConfig({}), "/tmp/out").find((i) => i.name === "hadolint")!;
     expect(inv.command).toContain('"version":"2.1.0"'); // the no-Dockerfile fallback

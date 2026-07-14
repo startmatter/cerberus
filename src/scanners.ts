@@ -57,11 +57,19 @@ export function buildInvocations(config: CerberusConfig, outDir: string): Invoca
     // --output-file-path takes a directory; checkov names the file itself.
     // It also exits non-zero when it finds anything, which is not a failure —
     // the runner prefers the report over the exit code.
+    //
+    // github_configuration is skipped on purpose: with a GITHUB_TOKEN in the
+    // environment it calls the API and dumps `github_conf/` into the scanned
+    // directory. We run as root over a mounted workspace, so that directory
+    // outlives the container owned by root — and the next `actions/checkout`,
+    // running as the runner's user, cannot delete it and fails the whole
+    // pipeline. It audits branch protection, which we do not act on anyway.
     inv.push({
       name: "checkov",
       output: join(outDir, "results_sarif.sarif"),
       command: [
         "checkov", "-d", ".", "-o", "sarif", "--output-file-path", outDir,
+        "--skip-framework", "github_configuration",
         "--compact", "--quiet", ...s.checkov.args,
       ],
     });
