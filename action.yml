@@ -5,12 +5,27 @@ branding:
   color: gray-dark
 
 inputs:
+  api-url:
+    description: >
+      Tracker's base URL (e.g. https://up.startmatter.com) — preferred over
+      url/secret. Used with api-key and project-id; a member API key, not a
+      per-project secret. Not needed when mode is `off`.
+    required: false
+    default: ""
+  api-key:
+    description: Tracker API key (store it as a repository or organization secret). Used with api-url and project-id.
+    required: false
+    default: ""
+  project-id:
+    description: Target project id in the tracker. Used with api-url and api-key.
+    required: false
+    default: ""
   url:
-    description: Ingest URL from the tracker's integration settings. Not needed when mode is `off`.
+    description: "Legacy: ingest URL from the tracker's integration settings. Prefer api-url/api-key/project-id. Not needed when mode is `off`."
     required: false
     default: ""
   secret:
-    description: Ingest secret (store it as a repository or organization secret). Not needed when mode is `off`.
+    description: "Legacy: ingest secret (store it as a repository or organization secret). Prefer api-url/api-key/project-id."
     required: false
     default: ""
   path:
@@ -68,6 +83,9 @@ runs:
     - name: Run Cerberus
       shell: bash
       env:
+        K_API_URL: ${{ inputs.api-url }}
+        K_API_KEY: ${{ inputs.api-key }}
+        K_PROJECT_ID: ${{ inputs.project-id }}
         K_SARIF_URL: ${{ inputs.url }}
         K_SARIF_SECRET: ${{ inputs.secret }}
         # Used to post the scan report on the pull request. Read-only without
@@ -83,6 +101,7 @@ runs:
           -v "${{ github.workspace }}:/src" \
           -v "${GITHUB_STEP_SUMMARY}:/tmp/summary.md" \
           -w "/src/${{ inputs.path }}" \
+          -e K_API_URL -e K_API_KEY -e K_PROJECT_ID \
           -e K_SARIF_URL -e K_SARIF_SECRET \
           -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_REF \
           -e GITHUB_STEP_SUMMARY=/tmp/summary.md \
