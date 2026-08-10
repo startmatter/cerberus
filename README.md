@@ -4,13 +4,13 @@
 
 <h1 align="center">Cerberus</h1>
 
-**Cerberus** is a guard dog for your CI: SAST (Semgrep), secrets (Gitleaks), dependencies (Trivy), IaC misconfig (Checkov) and Dockerfile lint (Hadolint) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when *new* findings appear — your old backlog never blocks a merge.
+**Cerberus** is a guard dog for your CI: SAST (Semgrep), secrets (Gitleaks), dependencies (Trivy), IaC misconfig (Checkov) and Dockerfile lint (Hadolint) in one container. It merges everything into a single SARIF report, ships it to your tracker, and fails the pipeline only when _new_ findings appear — your old backlog never blocks a merge.
 
 > **Status: in production.** The image is published as `ghcr.io/startmatter/cerberus:latest` (linux/amd64 + arm64), the GitHub and GitLab wrappers are in use, and the pipeline scans ~110 repositories daily.
 
 ## Why another scanner wrapper
 
-Running scanners in CI is easy. Living with the results is not: the first scan dumps hundreds of findings, every pipeline goes red, and a week later someone turns the gate off. Cerberus stays stateless and delegates memory to a backend (a tracker). The backend deduplicates findings across scans and answers with a **delta** — so tasks are created only for new findings, fixed ones are auto-closed, triaged false positives stay silent, and the merge gate reacts to *new* problems only.
+Running scanners in CI is easy. Living with the results is not: the first scan dumps hundreds of findings, every pipeline goes red, and a week later someone turns the gate off. Cerberus stays stateless and delegates memory to a backend (a tracker). The backend deduplicates findings across scans and answers with a **delta** — so tasks are created only for new findings, fixed ones are auto-closed, triaged false positives stay silent, and the merge gate reacts to _new_ problems only.
 
 ## How it works
 
@@ -46,8 +46,9 @@ jobs:
   security:
     uses: startmatter/cerberus/.github/workflows/scan.yml@main
     secrets:
-      K_SARIF_URL: ${{ secrets.K_SARIF_URL }}
-      K_SARIF_SECRET: ${{ secrets.K_SARIF_SECRET }}
+      K_API_URL: ${{ secrets.K_API_URL }}
+      K_API_KEY: ${{ secrets.K_API_KEY }}
+      K_PROJECT_ID: ${{ secrets.K_PROJECT_ID }}
 ```
 
 The scan report is posted as a pull-request comment when the caller's token may write to
@@ -59,19 +60,22 @@ Or drive the action directly when you need control over the surrounding job:
 ```yaml
 - uses: actions/checkout@v4
   with:
-    fetch-depth: 0          # Gitleaks scans the whole history
+    fetch-depth: 0 # Gitleaks scans the whole history
 - uses: startmatter/cerberus@main
   with:
-    url: ${{ secrets.K_SARIF_URL }}
-    secret: ${{ secrets.K_SARIF_SECRET }}
+    api-url: ${{ secrets.K_API_URL }}
+    api-key: ${{ secrets.K_API_KEY }}
+    project-id: ${{ secrets.K_PROJECT_ID }}
     # dns: 1.1.1.1,8.8.8.8  # self-hosted runners whose resolver containers can't reach
 ```
 
 CI context (repo, branch, commit, author, changed files) is detected from GitLab CI / GitHub Actions
-environment variables. `K_SARIF_URL` and `K_SARIF_SECRET` come from the tracker's integration settings —
-set them group-level (GitLab) or as org secrets (GitHub) so every repo inherits them. In `auto` mode
-the default branch reports (creates/closes tasks) and every other branch checks (read-only gate) — so
-one job line covers pushes and merge requests.
+environment variables. `K_API_URL` is the tracker's base URL, `K_API_KEY` a member API key, and
+`K_PROJECT_ID` the target project — set them group-level (GitLab) or as org secrets (GitHub) so every
+repo inherits them. (Legacy: `url`/`secret` inputs — `K_SARIF_URL`/`K_SARIF_SECRET` — a per-project
+webhook secret, still work if the API trio isn't set.) In `auto` mode the default branch reports
+(creates/closes tasks) and every other branch checks (read-only gate) — so one job line covers pushes
+and merge requests.
 
 Add a nightly scheduled pipeline for dependency scanning: new CVEs land in code that never changed,
 so pushes alone will not surface them.
@@ -107,7 +111,7 @@ uploads nothing unless you pass `--upload`. Exit codes: 0 clean, 1 gate failed, 
 - **Stateless.** Cerberus scans everything and sends everything. History, dedup, baselines and suppression live in the backend.
 - **Delta gate.** Pipelines fail only on findings introduced by the change. A pre-existing backlog never blocks a merge.
 - **Says what it found.** Every run writes a report to the job summary, and on a pull request posts it as a comment (replacing its own previous one): each new finding with severity, file:line and a link to the task it created.
-- **No second UI.** Triage happens in your tracker: close a task as *declined* and the finding is suppressed forever; close it as *done* and the next scan verifies the fix.
+- **No second UI.** Triage happens in your tracker: close a task as _declined_ and the finding is suppressed forever; close it as _done_ and the next scan verifies the fix.
 - **Bring your own backend.** The upload contract is a documented JSON envelope around SARIF; any backend implementing it works.
 
 ## Roadmap

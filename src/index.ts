@@ -17,7 +17,11 @@ import { targetFromEnv, buildEnvelope, upload } from "./upload.js";
 import { evaluateGate } from "./gate.js";
 import { flattenFindings, renderTable } from "./table.js";
 import { buildReport } from "./report.js";
-import { writeJobSummary, prTargetFromEnv, upsertPrComment } from "./publish.js";
+import {
+  writeJobSummary,
+  prTargetFromEnv,
+  upsertPrComment,
+} from "./publish.js";
 
 const HELP = `cerberus — security scan orchestrator and merge gate
 
@@ -64,7 +68,9 @@ async function main() {
     return;
   }
   if (command === "version") {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string };
+    const pkg = JSON.parse(
+      readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"),
+    ) as { version: string };
     console.log(pkg.version);
     return;
   }
@@ -79,14 +85,20 @@ async function main() {
   const runs = await runScanners(config, cwd);
   for (const run of runs) {
     const took = `${Math.round(run.durationMs / 100) / 10}s`;
-    console.error(run.ok ? `cerberus: ${run.name} done in ${took}` : `cerberus: ${run.name} FAILED (${run.error})`);
+    console.error(
+      run.ok
+        ? `cerberus: ${run.name} done in ${took}`
+        : `cerberus: ${run.name} FAILED (${run.error})`,
+    );
   }
   const succeeded = runs.filter((r) => r.ok);
   if (runs.length === 0) fail("no scanners enabled");
   if (succeeded.length === 0) fail("every scanner failed");
 
   const { sarif, results } = mergeSarif(succeeded.map((r) => r.sarif));
-  console.error(`cerberus: ${results} raw result(s) from ${succeeded.length} scanner(s)`);
+  console.error(
+    `cerberus: ${results} raw result(s) from ${succeeded.length} scanner(s)`,
+  );
 
   if (values.json) {
     console.log(JSON.stringify(sarif));
@@ -95,7 +107,10 @@ async function main() {
 
   // ── Resolve upload mode ──
   const modeOverride = values.mode;
-  if (modeOverride && !["auto", "report", "check", "off"].includes(modeOverride)) {
+  if (
+    modeOverride &&
+    !["auto", "report", "check", "off"].includes(modeOverride)
+  ) {
     fail(`invalid --mode "${modeOverride}"`);
   }
   let mode = (modeOverride as typeof config.upload.mode) ?? config.upload.mode;
@@ -105,34 +120,52 @@ async function main() {
   }
 
   if (mode === "off") {
-    console.log(renderTable(flattenFindings(sarif), process.stdout.isTTY ?? false));
-    console.error("cerberus: upload off — no gate (local scans are informational)");
+    console.log(
+      renderTable(flattenFindings(sarif), process.stdout.isTTY ?? false),
+    );
+    console.error(
+      "cerberus: upload off — no gate (local scans are informational)",
+    );
     return;
   }
 
   const target = targetFromEnv();
-  if (!target) fail("K_SARIF_URL and K_SARIF_SECRET are required to upload (or run with --mode off)");
+  if (!target)
+    fail(
+      "K_API_URL/K_API_KEY/K_PROJECT_ID (or the legacy K_SARIF_URL/K_SARIF_SECRET) are required to upload (or run with --mode off)",
+    );
 
   // ── Upload + gate ──
   const partial = values.partial || config.upload.partial;
-  const response = await upload(target, buildEnvelope(ctx, mode, partial, sarif));
+  const response = await upload(
+    target,
+    buildEnvelope(ctx, mode, partial, sarif),
+  );
   if (!response.ok) fail(`upload failed: ${response.error ?? "unknown error"}`);
 
   const s = response.summary!;
   console.error(
     `cerberus: ${mode} → new ${s.new} · known ${s.known} · fixed ${s.fixed} · reopened ${s.reopened} · suppressed ${s.suppressed}` +
-    (response.baseline ? " · BASELINE (no tasks, no gate)" : "") +
-    (s.tasksCreated ? ` · ${s.tasksCreated} task(s) created` : ""),
+      (response.baseline ? " · BASELINE (no tasks, no gate)" : "") +
+      (s.tasksCreated ? ` · ${s.tasksCreated} task(s) created` : ""),
   );
   for (const f of response.new ?? []) {
-    const where = f.file ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})` : "";
-    const task = f.taskUrl ? ` → ${f.taskKey ?? "task"} ${f.taskUrl}` : f.taskId ? ` → task ${f.taskId}` : "";
+    const where = f.file
+      ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})`
+      : "";
+    const task = f.taskUrl
+      ? ` → ${f.taskKey ?? "task"} ${f.taskUrl}`
+      : f.taskId
+        ? ` → task ${f.taskId}`
+        : "";
     console.error(`  NEW [${f.severity}] ${f.title}${where}${task}`);
   }
   // Findings were accepted but never became work — the run would otherwise look
   // clean while nothing lands in anyone's queue.
   if (s.taskFailures) {
-    console.error(`cerberus: WARNING — ${s.taskFailures} finding(s) could not be turned into tasks: ${response.taskError ?? "unknown error"}`);
+    console.error(
+      `cerberus: WARNING — ${s.taskFailures} finding(s) could not be turned into tasks: ${response.taskError ?? "unknown error"}`,
+    );
   }
 
   const gate = evaluateGate(config.gate.failOn, response);
@@ -140,7 +173,8 @@ async function main() {
   // Publish before exiting: a failed gate is exactly when the reader needs the
   // detail, and process.exit() below would skip anything after it.
   const report = buildReport(ctx, response, gate);
-  if (writeJobSummary(report)) console.error("cerberus: report written to the job summary");
+  if (writeJobSummary(report))
+    console.error("cerberus: report written to the job summary");
   const pr = prTargetFromEnv();
   if (pr) {
     const outcome = await upsertPrComment(pr, report);
@@ -152,7 +186,9 @@ async function main() {
   }
 
   if (gate.failed) {
-    console.error(`cerberus: GATE FAILED (${config.gate.failOn}): ${gate.reason}`);
+    console.error(
+      `cerberus: GATE FAILED (${config.gate.failOn}): ${gate.reason}`,
+    );
     process.exit(1);
   }
   console.error(`cerberus: gate passed (${config.gate.failOn})`);

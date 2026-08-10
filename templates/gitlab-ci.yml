@@ -5,9 +5,13 @@
 #   include:
 #     - remote: https://raw.githubusercontent.com/startmatter/cerberus/main/templates/gitlab-ci.yml
 #
-# Requires two CI variables (set them group-level so every repo inherits):
-#   K_SARIF_URL     — the ingest URL from the tracker's integration settings
-#   K_SARIF_SECRET  — the secret (mask it)
+# Requires three CI variables (set them group-level so every repo inherits):
+#   K_API_URL     — the tracker's base URL, e.g. https://up.startmatter.com
+#   K_API_KEY     — a member API key (mask it)
+#   K_PROJECT_ID  — the target project's id in the tracker
+#
+# Legacy: K_SARIF_URL + K_SARIF_SECRET (a per-project webhook secret) still
+# works if the above three aren't set — prefer the API scheme above.
 #
 # If the image is private (ghcr packages are private unless the organization
 # allows public ones), add a third group variable so the runner can pull it:
@@ -35,7 +39,7 @@
   script:
     - cerberus scan
   rules:
-    - if: $K_SARIF_URL == null || $K_SARIF_SECRET == null
+    - if: ($K_API_URL == null || $K_API_KEY == null || $K_PROJECT_ID == null) && ($K_SARIF_URL == null || $K_SARIF_SECRET == null)
       when: never
     - when: always
 

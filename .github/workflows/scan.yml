@@ -57,6 +57,13 @@ on:
     # Declared explicitly, not inherited: `secrets: inherit` does not cross
     # organization boundaries, and callers may live in a different org.
     secrets:
+      K_API_URL:
+        required: false
+      K_API_KEY:
+        required: false
+      K_PROJECT_ID:
+        required: false
+      # Legacy — prefer K_API_URL/K_API_KEY/K_PROJECT_ID above.
       K_SARIF_URL:
         required: false
       K_SARIF_SECRET:
@@ -79,20 +86,28 @@ jobs:
       - name: Check configuration
         id: cfg
         env:
+          API_URL: ${{ secrets.K_API_URL }}
+          API_KEY: ${{ secrets.K_API_KEY }}
+          PROJECT_ID: ${{ secrets.K_PROJECT_ID }}
           URL: ${{ secrets.K_SARIF_URL }}
           SECRET: ${{ secrets.K_SARIF_SECRET }}
         run: |
-          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
-            echo "::warning::K_SARIF_URL / K_SARIF_SECRET are not set — skipping the scan"
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ -n "$API_URL" ] && [ -n "$API_KEY" ] && [ -n "$PROJECT_ID" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$URL" ] && [ -n "$SECRET" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Neither K_API_URL/K_API_KEY/K_PROJECT_ID nor K_SARIF_URL/K_SARIF_SECRET are set — skipping the scan"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run Cerberus
         if: steps.cfg.outputs.configured == 'true'
         uses: startmatter/cerberus@main
         with:
+          api-url: ${{ secrets.K_API_URL }}
+          api-key: ${{ secrets.K_API_KEY }}
+          project-id: ${{ secrets.K_PROJECT_ID }}
           url: ${{ secrets.K_SARIF_URL }}
           secret: ${{ secrets.K_SARIF_SECRET }}
           mode: ${{ inputs.mode }}
