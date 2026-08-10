@@ -92,12 +92,16 @@ runs:
         # `pull-requests: write`, in which case the report stays in the summary.
         GITHUB_TOKEN: ${{ inputs.registry-token || github.token }}
       run: |
+        # Self-hosted runners keep a persistent Docker cache — plain `docker
+        # run image:latest` reuses whatever :latest already sits on disk and
+        # never checks the registry, so a release here can silently never
+        # reach them. --pull always forces the freshness check every run.
         dns_args=""
         if [ -n "${{ inputs.dns }}" ]; then
           IFS=',' read -ra servers <<< "${{ inputs.dns }}"
           for s in "${servers[@]}"; do dns_args="$dns_args --dns $(echo "$s" | tr -d ' ')"; done
         fi
-        docker run --rm $dns_args \
+        docker run --rm --pull always $dns_args \
           -v "${{ github.workspace }}:/src" \
           -v "${GITHUB_STEP_SUMMARY}:/tmp/summary.md" \
           -w "/src/${{ inputs.path }}" \
