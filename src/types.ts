@@ -1,7 +1,6 @@
-/** Shared types: config shape, CI context, backend contract. */
+/** Shared types: config shape, CI context, findings, gate. */
 
 export type GatePolicy = "new-critical" | "new-high" | "any-new" | "never";
-export type UploadMode = "auto" | "report" | "check" | "off";
 
 export interface ScannerConfig {
   enabled: boolean;
@@ -36,49 +35,27 @@ export interface CerberusConfig {
     custom: CustomScanner[];
   };
   gate: { failOn: GatePolicy };
-  upload: { mode: UploadMode; partial: boolean };
 }
 
-/** Where and what we are scanning — from CI env vars or local git. */
+/**
+ * Where and what we are scanning — from CI env vars or local git.
+ *
+ * `scope` drives the gate: on a `merge_request` it filters findings down to
+ * files the change actually touches (`changedFiles`); every other scope (a
+ * push to the default branch, a scheduled sweep, a local run) gates on
+ * everything found, unscoped — a nightly dependency scan exists precisely to
+ * catch new CVEs in code nobody touched, so it must not be diff-scoped away
+ * to nothing.
+ */
 export interface CiContext {
   provider: "gitlab" | "github" | "local";
+  scope: "merge_request" | "default_branch" | "schedule" | "local";
   repo: string;
   branch: string;
   defaultBranch: string;
   commit?: string;
   author?: string;
   changedFiles: string[];
-}
-
-/** The backend's scan-delta response (see the K ingest contract). */
-export interface UploadResponse {
-  ok: boolean;
-  mode?: string;
-  baseline?: boolean;
-  truncated?: boolean;
-  error?: string;
-  /** Set when the backend accepted findings but could not turn them into work. */
-  taskError?: string;
-  summary?: {
-    total: number;
-    new: number;
-    known: number;
-    suppressed: number;
-    fixed: number;
-    reopened: number;
-    tasksCreated: number;
-    taskFailures?: number;
-  };
-  new?: Array<{
-    title: string;
-    severity: string;
-    file: string | null;
-    line: number | null;
-    taskId: string | null;
-    /** Human-facing task id (e.g. SID/T/12) and a link straight to it. */
-    taskKey?: string | null;
-    taskUrl?: string | null;
-  }>;
 }
 
 export interface ScannerRun {
@@ -90,7 +67,19 @@ export interface ScannerRun {
   durationMs: number;
 }
 
+/** One SARIF result, flattened for local (backend-free) gating and reporting. */
+export interface FlatFinding {
+  severity: string;
+  tool: string;
+  ruleId: string;
+  title: string;
+  file: string | null;
+  line: number | null;
+}
+
 export interface GateResult {
   failed: boolean;
   reason?: string;
+  /** The findings actually considered — diff-scoped on a merge request, everything otherwise. */
+  scoped: FlatFinding[];
 }

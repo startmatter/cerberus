@@ -5,23 +5,27 @@
 #   include:
 #     - remote: https://raw.githubusercontent.com/startmatter/cerberus/main/templates/gitlab-ci.yml
 #
-# Requires three CI variables (set them group-level so every repo inherits):
-#   K_API_URL     — the tracker's base URL, e.g. https://up.startmatter.com
-#   K_API_KEY     — a member API key (mask it)
-#   K_PROJECT_ID  — the target project's id in the tracker
+# One CI variable enables merge-request comments — set it group-level so
+# every repo inherits it:
+#   CERBERUS_GITLAB_TOKEN — a bot token (project/group access token, `api`
+#   scope) used only to post the scan report as a merge-request note.
+#   GitLab's own CI_JOB_TOKEN cannot do this: its API access is read-only for
+#   merge-request notes. Same pattern already used in production for
+#   codex-review's own MR commenting (CODEX_GITLAB_BOT_TOKEN). Without it the
+#   scan still runs and still gates — you just don't get the MR comment, only
+#   the job log.
 #
-# Legacy: K_SARIF_URL + K_SARIF_SECRET (a per-project webhook secret) still
-# works if the above three aren't set — prefer the API scheme above.
+# A merge-request pipeline gates only on findings in files the MR actually
+# touches. Every other pipeline (a push to the default branch, a scheduled
+# sweep) gates on everything the scan finds — that's what lets a nightly
+# dependency scan fail at all, since nothing "changed" that day.
 #
 # If the image is private (ghcr packages are private unless the organization
-# allows public ones), add a third group variable so the runner can pull it:
+# allows public ones), add a group variable so the runner can pull it:
 #   DOCKER_AUTH_CONFIG (type: File is not needed — plain variable):
 #     {"auths":{"ghcr.io":{"auth":"BASE64_OF_username:github_pat_with_read:packages"}}}
 #   Build the value with:
 #     printf '%s' 'USER:TOKEN' | base64
-#
-# Pushes to the default branch report (tasks are created/closed); every other
-# branch and merge request runs a read-only check that gates the pipeline.
 #
 # For a nightly dependency sweep, add a scheduled pipeline — new CVEs land in
 # unchanged code, so pushes alone never surface them.
@@ -34,13 +38,11 @@
     # and the job dies with "Unknown option '-c'".
     entrypoint: [""]
   variables:
-    # Full history: changed-file detection diffs against the previous commit.
+    # Full history: changed-file detection diffs against the MR's base commit.
     GIT_DEPTH: "0"
   script:
     - cerberus scan
   rules:
-    - if: ($K_API_URL == null || $K_API_KEY == null || $K_PROJECT_ID == null) && ($K_SARIF_URL == null || $K_SARIF_SECRET == null)
-      when: never
     - when: always
 
 cerberus:

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * cerberus scan [path] — run the configured scanners, merge SARIF, upload to
- * the backend and gate the pipeline on the delta.
+ * cerberus scan [path] — run the configured scanners, merge SARIF, and gate
+ * the pipeline. Fully local: no backend, no upload, no tasks.
  *
  * Exit codes: 0 clean · 1 gate failed · 2 runtime/config error.
  */
@@ -13,7 +13,6 @@ import { loadConfig } from "./config.js";
 import { detectCi } from "./ci.js";
 import { runScanners } from "./scanners.js";
 import { mergeSarif } from "./merge.js";
-import { targetFromEnv, buildEnvelope, upload } from "./upload.js";
 import { evaluateGate } from "./gate.js";
 import { flattenFindings, renderTable } from "./table.js";
 import { buildReport } from "./report.js";
@@ -21,6 +20,8 @@ import {
   writeJobSummary,
   prTargetFromEnv,
   upsertPrComment,
+  mrTargetFromEnv,
+  upsertMrNote,
 } from "./publish.js";
 
 const HELP = `cerberus — security scan orchestrator and merge gate
@@ -31,16 +32,9 @@ Usage:
 
 Options:
   --config <file>     Config file (default: <path>/cerberus.yml)
-  --mode <mode>       auto | report | check | off (overrides upload.mode)
-  --upload            Force upload even outside CI
-  --partial           Mark the scan as partial (skips backend auto-close)
+  --no-gate           Print findings but never fail the process (local runs skip the gate by default)
   --json              Print the merged SARIF to stdout instead of a table
   --help              Show this help
-
-Environment:
-  K_SARIF_URL         Backend ingest URL (required to upload)
-  K_SARIF_SECRET      Backend secret (required to upload)
-  K_SARIF_HEADER      Secret header name (default: X-Webhook-Secret)
 `;
 
 function fail(message: string): never {
@@ -54,9 +48,7 @@ async function main() {
     allowPositionals: true,
     options: {
       config: { type: "string" },
-      mode: { type: "string" },
-      upload: { type: "boolean", default: false },
-      partial: { type: "boolean", default: false },
+      "no-gate": { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -105,74 +97,26 @@ async function main() {
     return;
   }
 
-  // ── Resolve upload mode ──
-  const modeOverride = values.mode;
-  if (
-    modeOverride &&
-    !["auto", "report", "check", "off"].includes(modeOverride)
-  ) {
-    fail(`invalid --mode "${modeOverride}"`);
-  }
-  let mode = (modeOverride as typeof config.upload.mode) ?? config.upload.mode;
-  if (mode === "auto") {
-    if (ctx.provider === "local" && !values.upload) mode = "off";
-    else mode = ctx.branch === ctx.defaultBranch ? "report" : "check";
-  }
+  const findings = flattenFindings(sarif);
+  console.log(renderTable(findings, process.stdout.isTTY ?? false));
 
-  if (mode === "off") {
-    console.log(
-      renderTable(flattenFindings(sarif), process.stdout.isTTY ?? false),
-    );
+  const noGate = values["no-gate"] || ctx.provider === "local";
+  if (noGate) {
     console.error(
-      "cerberus: upload off — no gate (local scans are informational)",
+      "cerberus: gate skipped (local run — pass --config for CI-detected env, or this is intentional)",
     );
     return;
   }
 
-  const target = targetFromEnv();
-  if (!target)
-    fail(
-      "K_API_URL/K_API_KEY/K_PROJECT_ID (or the legacy K_SARIF_URL/K_SARIF_SECRET) are required to upload (or run with --mode off)",
-    );
-
-  // ── Upload + gate ──
-  const partial = values.partial || config.upload.partial;
-  const response = await upload(
-    target,
-    buildEnvelope(ctx, mode, partial, sarif),
-  );
-  if (!response.ok) fail(`upload failed: ${response.error ?? "unknown error"}`);
-
-  const s = response.summary!;
+  const gate = evaluateGate(config.gate.failOn, findings, ctx);
   console.error(
-    `cerberus: ${mode} → new ${s.new} · known ${s.known} · fixed ${s.fixed} · reopened ${s.reopened} · suppressed ${s.suppressed}` +
-      (response.baseline ? " · BASELINE (no tasks, no gate)" : "") +
-      (s.tasksCreated ? ` · ${s.tasksCreated} task(s) created` : ""),
+    `cerberus: ${gate.scoped.length} finding(s) in scope (${ctx.scope})` +
+      (gate.failed ? " · GATE FAILED" : " · gate passed"),
   );
-  for (const f of response.new ?? []) {
-    const where = f.file
-      ? ` (${f.file}${f.line != null ? `:${f.line}` : ""})`
-      : "";
-    const task = f.taskUrl
-      ? ` → ${f.taskKey ?? "task"} ${f.taskUrl}`
-      : f.taskId
-        ? ` → task ${f.taskId}`
-        : "";
-    console.error(`  NEW [${f.severity}] ${f.title}${where}${task}`);
-  }
-  // Findings were accepted but never became work — the run would otherwise look
-  // clean while nothing lands in anyone's queue.
-  if (s.taskFailures) {
-    console.error(
-      `cerberus: WARNING — ${s.taskFailures} finding(s) could not be turned into tasks: ${response.taskError ?? "unknown error"}`,
-    );
-  }
-
-  const gate = evaluateGate(config.gate.failOn, response);
 
   // Publish before exiting: a failed gate is exactly when the reader needs the
   // detail, and process.exit() below would skip anything after it.
-  const report = buildReport(ctx, response, gate);
+  const report = buildReport(ctx, gate);
   if (writeJobSummary(report))
     console.error("cerberus: report written to the job summary");
   const pr = prTargetFromEnv();
@@ -182,6 +126,15 @@ async function main() {
       outcome === "failed"
         ? "cerberus: could not comment on the pull request (needs pull-requests: write)"
         : `cerberus: report ${outcome} on PR #${pr.prNumber}`,
+    );
+  }
+  const mr = mrTargetFromEnv();
+  if (mr) {
+    const outcome = await upsertMrNote(mr, report);
+    console.error(
+      outcome === "failed"
+        ? "cerberus: could not comment on the merge request (check CERBERUS_GITLAB_TOKEN)"
+        : `cerberus: report ${outcome} on MR !${mr.mrIid}`,
     );
   }
 

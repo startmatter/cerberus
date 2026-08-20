@@ -1,41 +1,18 @@
 name: Cerberus security scan
-description: Run Semgrep, Gitleaks and Trivy, report findings to your tracker and gate the merge on new ones.
+description: Run Semgrep, Gitleaks, Trivy, Checkov and Hadolint; report findings and gate the merge.
 branding:
   icon: shield
   color: gray-dark
 
 inputs:
-  api-url:
-    description: >
-      Tracker's base URL (e.g. https://up.startmatter.com) — preferred over
-      url/secret. Used with api-key and project-id; a member API key, not a
-      per-project secret. Not needed when mode is `off`.
-    required: false
-    default: ""
-  api-key:
-    description: Tracker API key (store it as a repository or organization secret). Used with api-url and project-id.
-    required: false
-    default: ""
-  project-id:
-    description: Target project id in the tracker. Used with api-url and api-key.
-    required: false
-    default: ""
-  url:
-    description: "Legacy: ingest URL from the tracker's integration settings. Prefer api-url/api-key/project-id. Not needed when mode is `off`."
-    required: false
-    default: ""
-  secret:
-    description: "Legacy: ingest secret (store it as a repository or organization secret). Prefer api-url/api-key/project-id."
-    required: false
-    default: ""
   path:
     description: Directory to scan.
     required: false
     default: "."
-  mode:
-    description: auto | report | check | off. Default auto — report on the default branch, check elsewhere.
+  gate:
+    description: Fail the job on qualifying findings. Set to "false" for an informational-only run.
     required: false
-    default: auto
+    default: "true"
   image:
     description: Cerberus image to run.
     required: false
@@ -55,11 +32,18 @@ inputs:
       permission on the job). Leave empty for a public image.
     required: false
     default: ${{ github.token }}
+  pull:
+    description: >
+      Docker pull policy (always | missing | never). Set to "never" to run a
+      locally-built image tag that was never pushed to a registry — "always"
+      would try to resolve it remotely and fail.
+    required: false
+    default: always
 
 runs:
   using: composite
   steps:
-    # Changed-file detection diffs against the previous commit, so the scan
+    # Changed-file detection diffs against the PR's base branch, so the scan
     # needs more than the default single-commit checkout.
     - name: Deepen history
       shell: bash
@@ -83,11 +67,6 @@ runs:
     - name: Run Cerberus
       shell: bash
       env:
-        K_API_URL: ${{ inputs.api-url }}
-        K_API_KEY: ${{ inputs.api-key }}
-        K_PROJECT_ID: ${{ inputs.project-id }}
-        K_SARIF_URL: ${{ inputs.url }}
-        K_SARIF_SECRET: ${{ inputs.secret }}
         # Used to post the scan report on the pull request. Read-only without
         # `pull-requests: write`, in which case the report stays in the summary.
         GITHUB_TOKEN: ${{ inputs.registry-token || github.token }}
@@ -101,17 +80,17 @@ runs:
           IFS=',' read -ra servers <<< "${{ inputs.dns }}"
           for s in "${servers[@]}"; do dns_args="$dns_args --dns $(echo "$s" | tr -d ' ')"; done
         fi
-        docker run --rm --pull always $dns_args \
+        gate_args=""
+        if [ "${{ inputs.gate }}" = "false" ]; then gate_args="--no-gate"; fi
+        docker run --rm --pull "${{ inputs.pull }}" $dns_args \
           -v "${{ github.workspace }}:/src" \
           -v "${GITHUB_STEP_SUMMARY}:/tmp/summary.md" \
           -w "/src/${{ inputs.path }}" \
-          -e K_API_URL -e K_API_KEY -e K_PROJECT_ID \
-          -e K_SARIF_URL -e K_SARIF_SECRET \
-          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_REF \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_REF -e GITHUB_EVENT_NAME -e GITHUB_BASE_REF \
           -e GITHUB_STEP_SUMMARY=/tmp/summary.md \
           -e GITHUB_ACTIONS -e GITHUB_REPOSITORY -e GITHUB_REF_NAME -e GITHUB_HEAD_REF \
           -e GITHUB_SHA -e GITHUB_ACTOR -e GITHUB_DEFAULT_BRANCH="${{ github.event.repository.default_branch }}" \
-          "${{ inputs.image }}" scan --mode "${{ inputs.mode }}"
+          "${{ inputs.image }}" scan $gate_args
 
     # The container runs as root over the mounted workspace, so anything a
     # scanner leaves behind is owned by root. The next `actions/checkout` runs

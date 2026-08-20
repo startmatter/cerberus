@@ -1,6 +1,15 @@
-/** The merge gate: fail the pipeline only on NEW findings, by policy. */
+/** The merge gate: fail on qualifying findings, scoped to the change on a
+ *  merge request — everywhere else (default-branch pushes, scheduled
+ *  sweeps, local runs) every finding counts. There is no backend anymore,
+ *  so "new" in a policy name means "in scope for this run," not "not seen
+ *  by a tracker before." */
 
-import type { GatePolicy, GateResult, UploadResponse } from "./types.js";
+import type {
+  CiContext,
+  FlatFinding,
+  GatePolicy,
+  GateResult,
+} from "./types.js";
 
 export type { GateResult };
 
@@ -10,28 +19,35 @@ const FAIL_SEVERITIES: Record<Exclude<GatePolicy, "never">, Set<string>> = {
   "any-new": new Set(["critical", "high", "medium", "low", "info"]),
 };
 
-export function evaluateGate(policy: GatePolicy, response: UploadResponse): GateResult {
-  if (policy === "never") return { failed: false };
-  if (!response.ok || !response.summary) {
-    // No verdict from the backend — do not invent one. Upload errors are
-    // surfaced separately via the exit code for runtime failures.
-    return { failed: false };
-  }
-  if (response.baseline) return { failed: false }; // first scan never gates
+function normalize(path: string): string {
+  return path.replace(/^\.\//, "");
+}
+
+function scopeFindings(findings: FlatFinding[], ctx: CiContext): FlatFinding[] {
+  if (ctx.scope !== "merge_request") return findings;
+  const changed = new Set(ctx.changedFiles.map(normalize));
+  return findings.filter((f) => f.file && changed.has(normalize(f.file)));
+}
+
+export function evaluateGate(
+  policy: GatePolicy,
+  findings: FlatFinding[],
+  ctx: CiContext,
+): GateResult {
+  const scoped = scopeFindings(findings, ctx);
+  if (policy === "never") return { failed: false, scoped };
 
   const failOn = FAIL_SEVERITIES[policy];
-  const offenders = (response.new ?? []).filter((f) => failOn.has(f.severity));
+  const offenders = scoped.filter((f) => failOn.has(f.severity));
+  if (offenders.length === 0) return { failed: false, scoped };
 
-  // `new` echoes at most a page of findings; trust the summary for any-new.
-  if (policy === "any-new" && response.summary.new > 0) {
-    return { failed: true, reason: `${response.summary.new} new finding(s)` };
-  }
-  if (offenders.length > 0) {
-    const worst = offenders[0]!;
-    return {
-      failed: true,
-      reason: `${offenders.length} new ${[...failOn].join("/")} finding(s), e.g. "${worst.title}"${worst.file ? ` (${worst.file}${worst.line != null ? `:${worst.line}` : ""})` : ""}`,
-    };
-  }
-  return { failed: false };
+  const worst = offenders[0]!; // flattenFindings already sorts by severity rank
+  const where = worst.file
+    ? ` (${worst.file}${worst.line != null ? `:${worst.line}` : ""})`
+    : "";
+  return {
+    failed: true,
+    reason: `${offenders.length} ${[...failOn].join("/")} finding(s), e.g. "${worst.title}"${where}`,
+    scoped,
+  };
 }

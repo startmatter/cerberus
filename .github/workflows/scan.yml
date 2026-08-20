@@ -8,13 +8,11 @@
 #       with:
 #         runner: self-hosted
 #         dns: 1.1.1.1,8.8.8.8      # self-hosted runners behind a VPN resolver
-#       secrets:
-#         K_SARIF_URL: ${{ secrets.K_SARIF_URL }}
-#         K_SARIF_SECRET: ${{ secrets.K_SARIF_SECRET }}
 #
-# The default branch reports (tasks are created, fixed findings close); every
-# other branch and pull request runs a read-only check that gates the merge on
-# findings the change introduces. The existing backlog never blocks anyone.
+# A pull request gates only on findings in files the change touches; every
+# other run (a push to the default branch, a scheduled sweep) gates on
+# everything the scan finds. There's no backend and nothing to configure —
+# the scan always runs.
 name: Cerberus
 
 # Permissions are inherited from the caller on purpose. Declaring them here
@@ -34,10 +32,10 @@ on:
         type: string
         default: ubuntu-latest
         required: false
-      mode:
-        description: "auto | report | check | off. auto reports on the default branch and checks elsewhere."
-        type: string
-        default: auto
+      gate:
+        description: "Fail the job on qualifying findings (default true)."
+        type: boolean
+        default: true
         required: false
       dns:
         description: "Comma-separated DNS servers for the scan container. Needed when the runner's resolver is unreachable from containers — without it Semgrep fetches no rules and Trivy no vulnerability database, and both quietly produce nothing."
@@ -54,20 +52,7 @@ on:
         type: string
         default: ghcr.io/startmatter/cerberus:latest
         required: false
-    # Declared explicitly, not inherited: `secrets: inherit` does not cross
-    # organization boundaries, and callers may live in a different org.
     secrets:
-      K_API_URL:
-        required: false
-      K_API_KEY:
-        required: false
-      K_PROJECT_ID:
-        required: false
-      # Legacy — prefer K_API_URL/K_API_KEY/K_PROJECT_ID above.
-      K_SARIF_URL:
-        required: false
-      K_SARIF_SECRET:
-        required: false
       # Only needed when the image is private and the caller is in another
       # organization — the job's own token cannot read it then.
       REGISTRY_TOKEN:
@@ -81,36 +66,10 @@ jobs:
         with:
           fetch-depth: 0 # Gitleaks scans the whole history
 
-      # Merging this workflow before the ingest secrets exist must not turn
-      # every pipeline red — say so and skip instead.
-      - name: Check configuration
-        id: cfg
-        env:
-          API_URL: ${{ secrets.K_API_URL }}
-          API_KEY: ${{ secrets.K_API_KEY }}
-          PROJECT_ID: ${{ secrets.K_PROJECT_ID }}
-          URL: ${{ secrets.K_SARIF_URL }}
-          SECRET: ${{ secrets.K_SARIF_SECRET }}
-        run: |
-          if [ -n "$API_URL" ] && [ -n "$API_KEY" ] && [ -n "$PROJECT_ID" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$URL" ] && [ -n "$SECRET" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Neither K_API_URL/K_API_KEY/K_PROJECT_ID nor K_SARIF_URL/K_SARIF_SECRET are set — skipping the scan"
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Run Cerberus
-        if: steps.cfg.outputs.configured == 'true'
         uses: startmatter/cerberus@main
         with:
-          api-url: ${{ secrets.K_API_URL }}
-          api-key: ${{ secrets.K_API_KEY }}
-          project-id: ${{ secrets.K_PROJECT_ID }}
-          url: ${{ secrets.K_SARIF_URL }}
-          secret: ${{ secrets.K_SARIF_SECRET }}
-          mode: ${{ inputs.mode }}
+          gate: ${{ inputs.gate }}
           dns: ${{ inputs.dns }}
           path: ${{ inputs.path }}
           image: ${{ inputs.image }}
