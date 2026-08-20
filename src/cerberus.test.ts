@@ -3,12 +3,11 @@ import { parseConfig } from "./config.js";
 import { detectCi } from "./ci.js";
 import { mergeSarif } from "./merge.js";
 import { evaluateGate } from "./gate.js";
-import { buildEnvelope, targetFromEnv } from "./upload.js";
 import { buildInvocations } from "./scanners.js";
 import { flattenFindings } from "./table.js";
 import { buildReport, COMMENT_MARKER } from "./report.js";
-import { prTargetFromEnv } from "./publish.js";
-import type { UploadResponse } from "./types.js";
+import { prTargetFromEnv, mrTargetFromEnv } from "./publish.js";
+import type { CiContext, FlatFinding } from "./types.js";
 
 describe("parseConfig", () => {
   it("returns full defaults for empty/missing config", () => {
@@ -22,26 +21,22 @@ describe("parseConfig", () => {
     expect(c.scanners.checkov.enabled).toBe(true);
     expect(c.scanners.hadolint.enabled).toBe(true);
     expect(c.gate.failOn).toBe("new-critical");
-    expect(c.upload).toEqual({ mode: "auto", partial: false });
   });
 
-  it("disables scanners and overrides gate/upload", () => {
+  it("disables scanners and overrides gate", () => {
     const c = parseConfig({
       scanners: { trivy: { enabled: false }, semgrep: { config: "p/ci" } },
       gate: { fail_on: "new-high" },
-      upload: { mode: "report", partial: true },
     });
     expect(c.scanners.trivy.enabled).toBe(false);
     expect(c.scanners.semgrep.config).toBe("p/ci");
     expect(c.gate.failOn).toBe("new-high");
-    expect(c.upload).toEqual({ mode: "report", partial: true });
   });
 
-  it("rejects unknown gate policies and modes", () => {
+  it("rejects an unknown gate policy", () => {
     expect(() => parseConfig({ gate: { fail_on: "sometimes" } })).toThrow(
       /fail_on/,
     );
-    expect(() => parseConfig({ upload: { mode: "maybe" } })).toThrow(/mode/);
   });
 
   it("validates custom scanners", () => {
@@ -58,7 +53,7 @@ describe("parseConfig", () => {
 });
 
 describe("detectCi", () => {
-  it("reads GitLab env", () => {
+  it("reads GitLab env on a default-branch push", () => {
     const ctx = detectCi("/tmp", {
       GITLAB_CI: "true",
       CI_PROJECT_NAME: "web",
@@ -68,9 +63,28 @@ describe("detectCi", () => {
       CI_COMMIT_AUTHOR: "Dev <dev@x.com>",
     });
     expect(ctx.provider).toBe("gitlab");
+    expect(ctx.scope).toBe("default_branch");
     expect(ctx.repo).toBe("web");
     expect(ctx.branch).toBe("main");
     expect(ctx.commit).toBe("abc");
+  });
+
+  it("scopes a GitLab merge-request pipeline", () => {
+    const ctx = detectCi("/tmp", {
+      GITLAB_CI: "true",
+      CI_PIPELINE_SOURCE: "merge_request_event",
+      CI_PROJECT_NAME: "web",
+    });
+    expect(ctx.scope).toBe("merge_request");
+  });
+
+  it("scopes a GitLab scheduled pipeline", () => {
+    const ctx = detectCi("/tmp", {
+      GITLAB_CI: "true",
+      CI_PIPELINE_SOURCE: "schedule",
+      CI_PROJECT_NAME: "web",
+    });
+    expect(ctx.scope).toBe("schedule");
   });
 
   it("reads GitHub env and prefers the PR head branch", () => {
@@ -79,16 +93,28 @@ describe("detectCi", () => {
       GITHUB_REPOSITORY: "startmatter/web",
       GITHUB_REF_NAME: "42/merge",
       GITHUB_HEAD_REF: "feature-x",
+      GITHUB_EVENT_NAME: "pull_request",
       GITHUB_SHA: "def",
     });
     expect(ctx.provider).toBe("github");
     expect(ctx.repo).toBe("web");
     expect(ctx.branch).toBe("feature-x");
+    expect(ctx.scope).toBe("merge_request");
+  });
+
+  it("scopes a GitHub schedule run outside a PR", () => {
+    const ctx = detectCi("/tmp", {
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "startmatter/web",
+      GITHUB_EVENT_NAME: "schedule",
+    });
+    expect(ctx.scope).toBe("schedule");
   });
 
   it("falls back to local git", () => {
     const ctx = detectCi(process.cwd(), {});
     expect(ctx.provider).toBe("local");
+    expect(ctx.scope).toBe("local");
     expect(ctx.repo.length).toBeGreaterThan(0);
   });
 });
@@ -164,142 +190,73 @@ describe("mergeSarif", () => {
 });
 
 describe("evaluateGate", () => {
-  const response = (over: Partial<UploadResponse>): UploadResponse => ({
-    ok: true,
-    summary: {
-      total: 5,
-      new: 0,
-      known: 5,
-      suppressed: 0,
-      fixed: 0,
-      reopened: 0,
-      tasksCreated: 0,
-    },
-    new: [],
+  const ctx = (over: Partial<CiContext>): CiContext => ({
+    provider: "gitlab",
+    scope: "default_branch",
+    repo: "web",
+    branch: "main",
+    defaultBranch: "main",
+    changedFiles: [],
+    ...over,
+  });
+  const finding = (over: Partial<FlatFinding>): FlatFinding => ({
+    severity: "high",
+    tool: "semgrep",
+    ruleId: "r1",
+    title: "t",
+    file: null,
+    line: null,
     ...over,
   });
 
-  it("passes when nothing is new", () => {
-    expect(evaluateGate("new-critical", response({})).failed).toBe(false);
+  it("passes when there are no findings", () => {
+    expect(evaluateGate("new-critical", [], ctx({})).failed).toBe(false);
   });
 
-  it("fails on a new critical for new-critical, but not on high", () => {
-    const withHigh = response({
-      summary: { ...response({}).summary!, new: 1 },
-      new: [
-        { title: "t", severity: "high", file: null, line: null, taskId: null },
-      ],
-    });
-    expect(evaluateGate("new-critical", withHigh).failed).toBe(false);
-    expect(evaluateGate("new-high", withHigh).failed).toBe(true);
-    const withCrit = response({
-      summary: { ...response({}).summary!, new: 1 },
-      new: [
-        {
-          title: "t",
-          severity: "critical",
-          file: "a.ts",
-          line: 1,
-          taskId: null,
-        },
-      ],
-    });
-    const r = evaluateGate("new-critical", withCrit);
+  it("fails on a critical for new-critical, but not on high", () => {
+    const high = [finding({ severity: "high" })];
+    expect(evaluateGate("new-critical", high, ctx({})).failed).toBe(false);
+    expect(evaluateGate("new-high", high, ctx({})).failed).toBe(true);
+
+    const crit = [finding({ severity: "critical", file: "a.ts", line: 1 })];
+    const r = evaluateGate("new-critical", crit, ctx({}));
     expect(r.failed).toBe(true);
     expect(r.reason).toContain("a.ts:1");
   });
 
-  it("any-new trusts the summary even when the echo list is empty", () => {
-    const r = evaluateGate(
-      "any-new",
-      response({ summary: { ...response({}).summary!, new: 3 }, new: [] }),
-    );
+  it("any-new fails on any severity", () => {
+    const r = evaluateGate("any-new", [finding({ severity: "info" })], ctx({}));
     expect(r.failed).toBe(true);
   });
 
-  it("never fails on baseline or with policy never", () => {
-    const withCrit = response({
-      baseline: true,
-      summary: { ...response({}).summary!, new: 1 },
-      new: [
-        {
-          title: "t",
-          severity: "critical",
-          file: null,
-          line: null,
-          taskId: null,
-        },
-      ],
-    });
-    expect(evaluateGate("new-critical", withCrit).failed).toBe(false);
-    expect(evaluateGate("never", withCrit).failed).toBe(false);
+  it("never fails with policy never, but still reports the scoped set", () => {
+    const crit = [finding({ severity: "critical" })];
+    const r = evaluateGate("never", crit, ctx({}));
+    expect(r.failed).toBe(false);
+    expect(r.scoped).toHaveLength(1);
   });
-});
 
-describe("upload helpers", () => {
-  it("builds the envelope from CI context", () => {
-    const env = buildEnvelope(
-      {
-        provider: "gitlab",
-        repo: "web",
-        branch: "f",
-        defaultBranch: "main",
-        commit: "abc",
-        author: "a@b.c",
-        changedFiles: ["x.ts"],
-      },
-      "check",
-      true,
-      { runs: [] },
+  it("on a merge request, only findings in changed files count", () => {
+    const findings = [
+      finding({ severity: "critical", file: "touched.ts" }),
+      finding({ severity: "critical", file: "untouched.ts" }),
+    ];
+    const mrCtx = ctx({ scope: "merge_request", changedFiles: ["touched.ts"] });
+    const r = evaluateGate("new-critical", findings, mrCtx);
+    expect(r.failed).toBe(true);
+    expect(r.scoped).toHaveLength(1);
+    expect(r.scoped[0]!.file).toBe("touched.ts");
+  });
+
+  it("outside a merge request, every finding counts regardless of changed files", () => {
+    const findings = [finding({ severity: "critical", file: "untouched.ts" })];
+    const r = evaluateGate(
+      "new-critical",
+      findings,
+      ctx({ scope: "schedule", changedFiles: [] }),
     );
-    expect(env.meta).toMatchObject({
-      repo: "web",
-      branch: "f",
-      baselineBranch: "main",
-      mode: "check",
-      partial: true,
-      changedFiles: ["x.ts"],
-    });
-  });
-
-  it("requires both url and secret in env (legacy)", () => {
-    expect(targetFromEnv({})).toBeNull();
-    expect(targetFromEnv({ K_SARIF_URL: "http://x" })).toBeNull();
-    expect(
-      targetFromEnv({ K_SARIF_URL: "http://x", K_SARIF_SECRET: "s" }),
-    ).toMatchObject({
-      kind: "legacy",
-      headerName: "X-Webhook-Secret",
-    });
-  });
-
-  it("requires all three of url/key/projectId in env (api)", () => {
-    expect(targetFromEnv({ K_API_URL: "http://x" })).toBeNull();
-    expect(targetFromEnv({ K_API_URL: "http://x", K_API_KEY: "k" })).toBeNull();
-    expect(
-      targetFromEnv({
-        K_API_URL: "http://x/",
-        K_API_KEY: "k",
-        K_PROJECT_ID: "p",
-      }),
-    ).toMatchObject({
-      kind: "api",
-      url: "http://x",
-      apiKey: "k",
-      projectId: "p",
-    });
-  });
-
-  it("prefers the api scheme when both are set", () => {
-    expect(
-      targetFromEnv({
-        K_API_URL: "http://x",
-        K_API_KEY: "k",
-        K_PROJECT_ID: "p",
-        K_SARIF_URL: "http://legacy",
-        K_SARIF_SECRET: "s",
-      }),
-    ).toMatchObject({ kind: "api" });
+    expect(r.failed).toBe(true);
+    expect(r.scoped).toHaveLength(1);
   });
 });
 
@@ -367,7 +324,7 @@ describe("buildInvocations", () => {
 });
 
 describe("flattenFindings", () => {
-  it("maps severity and sorts by rank", () => {
+  it("maps severity, splits file/line, and sorts by rank", () => {
     const findings = flattenFindings({
       runs: [
         {
@@ -398,112 +355,102 @@ describe("flattenFindings", () => {
     });
     expect(findings[0]).toMatchObject({
       severity: "critical",
-      location: "a.ts:3",
+      file: "a.ts",
+      line: 3,
     });
     expect(findings[1]!.severity).toBe("info");
+    expect(findings[1]!.file).toBeNull();
   });
 });
 
 describe("buildReport", () => {
-  const ctx = {
-    provider: "github" as const,
+  const ctx = (over: Partial<CiContext>): CiContext => ({
+    provider: "github",
+    scope: "merge_request",
     repo: "web",
     branch: "f",
     defaultBranch: "main",
     changedFiles: [],
-  };
-  const base = (over: Partial<UploadResponse>): UploadResponse => ({
-    ok: true,
-    summary: {
-      total: 10,
-      new: 0,
-      known: 10,
-      suppressed: 0,
-      fixed: 0,
-      reopened: 0,
-      tasksCreated: 0,
-    },
-    new: [],
     ...over,
   });
 
-  it("frames a baseline as recorded, not as work", () => {
-    const md = buildReport(ctx, base({ baseline: true }), { failed: false });
+  it("says so when nothing is in scope", () => {
+    const md = buildReport(ctx({}), { failed: false, scoped: [] });
     expect(md).toContain(COMMENT_MARKER);
-    expect(md).toContain("baseline");
-    expect(md).not.toContain("Gate failed");
+    expect(md).toContain("No findings in scope");
   });
 
-  it("tables the new findings with location and a link to the task", () => {
-    const response = base({
-      summary: {
-        total: 12,
-        new: 2,
-        known: 10,
-        suppressed: 0,
-        fixed: 1,
-        reopened: 0,
-        tasksCreated: 1,
-      },
-      new: [
+  it("tables findings by severity with location", () => {
+    const md = buildReport(ctx({}), {
+      failed: true,
+      reason: '1 critical finding(s), e.g. "SQL injection" (src/db.ts:42)',
+      scoped: [
         {
-          title: "SQL injection",
           severity: "critical",
+          tool: "semgrep",
+          ruleId: "r1",
+          title: "SQL injection",
           file: "src/db.ts",
           line: 42,
-          taskId: "t1",
-          taskKey: "SID/T/12",
-          taskUrl: "https://k.example/SMK/SID/T/12",
         },
         {
-          title: "Weak hash",
           severity: "low",
+          tool: "gitleaks",
+          ruleId: "r2",
+          title: "Weak hash",
           file: null,
           line: null,
-          taskId: null,
         },
       ],
     });
-    const md = buildReport(ctx, response, {
-      failed: true,
-      reason: "1 new critical finding(s)",
-    });
 
     expect(md).toContain("Gate failed");
-    expect(md).toContain("[SID/T/12](https://k.example/SMK/SID/T/12)");
     expect(md).toContain("`src/db.ts:42`");
     // Most severe first.
     expect(md.indexOf("SQL injection")).toBeLessThan(md.indexOf("Weak hash"));
   });
 
-  it("says so when nothing is new", () => {
-    expect(buildReport(ctx, base({}), { failed: false })).toContain(
-      "No new findings",
-    );
-  });
-
-  it("escapes a pipe so one finding cannot break the table", () => {
-    const response = base({
-      summary: {
-        total: 1,
-        new: 1,
-        known: 0,
-        suppressed: 0,
-        fixed: 0,
-        reopened: 0,
-        tasksCreated: 0,
-      },
-      new: [
+  it("frames a below-threshold scan as passing", () => {
+    const md = buildReport(ctx({}), {
+      failed: false,
+      scoped: [
         {
-          title: "a | b",
-          severity: "high",
+          severity: "low",
+          tool: "trivy",
+          ruleId: "r1",
+          title: "t",
           file: null,
           line: null,
-          taskId: null,
         },
       ],
     });
-    expect(buildReport(ctx, response, { failed: false })).toContain("a \\| b");
+    expect(md).not.toContain("Gate failed");
+    expect(md).toContain("below the gate threshold");
+  });
+
+  it("escapes a pipe so one finding cannot break the table", () => {
+    const md = buildReport(ctx({}), {
+      failed: false,
+      scoped: [
+        {
+          severity: "high",
+          tool: "semgrep",
+          ruleId: "r1",
+          title: "a | b",
+          file: null,
+          line: null,
+        },
+      ],
+    });
+    expect(md).toContain("a \\| b");
+  });
+
+  it("frames scope differently outside a merge request", () => {
+    const md = buildReport(ctx({ scope: "schedule" }), {
+      failed: false,
+      scoped: [],
+    });
+    expect(md).toContain("not just ones a specific change introduced");
   });
 });
 
@@ -539,5 +486,46 @@ describe("prTargetFromEnv", () => {
       }),
     ).toBeNull();
     expect(prTargetFromEnv({})).toBeNull();
+  });
+});
+
+describe("mrTargetFromEnv", () => {
+  it("recognises a merge-request pipeline with a token", () => {
+    const t = mrTargetFromEnv({
+      GITLAB_CI: "true",
+      CI_PIPELINE_SOURCE: "merge_request_event",
+      CERBERUS_GITLAB_TOKEN: "x",
+      CI_PROJECT_ID: "150",
+      CI_MERGE_REQUEST_IID: "7",
+      CI_SERVER_URL: "https://git.startmatter.com",
+    });
+    expect(t).toMatchObject({
+      api: "https://git.startmatter.com/api/v4",
+      projectId: "150",
+      mrIid: 7,
+    });
+  });
+
+  it("is null off a merge request, or without the token", () => {
+    expect(
+      mrTargetFromEnv({
+        GITLAB_CI: "true",
+        CI_PIPELINE_SOURCE: "push",
+        CERBERUS_GITLAB_TOKEN: "x",
+        CI_PROJECT_ID: "150",
+        CI_MERGE_REQUEST_IID: "7",
+        CI_SERVER_URL: "https://git.startmatter.com",
+      }),
+    ).toBeNull();
+    expect(
+      mrTargetFromEnv({
+        GITLAB_CI: "true",
+        CI_PIPELINE_SOURCE: "merge_request_event",
+        CI_PROJECT_ID: "150",
+        CI_MERGE_REQUEST_IID: "7",
+        CI_SERVER_URL: "https://git.startmatter.com",
+      }),
+    ).toBeNull();
+    expect(mrTargetFromEnv({})).toBeNull();
   });
 });

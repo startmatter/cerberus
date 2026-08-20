@@ -4,8 +4,8 @@
 scanners:
   semgrep:
     enabled: true
-    config: p/security-audit   # ruleset, fetched at runtime
-    args: []                   # extra CLI args, e.g. ["--exclude", "fixtures"]
+    config: p/security-audit # ruleset, fetched at runtime
+    args: [] # extra CLI args, e.g. ["--exclude", "fixtures"]
   gitleaks:
     enabled: true
     args: []
@@ -13,10 +13,10 @@ scanners:
     enabled: true
     scanners: [vuln, secret, misconfig]
     args: []
-  checkov:                     # IaC misconfig: Terraform, CloudFormation, k8s, Dockerfile
+  checkov: # IaC misconfig: Terraform, CloudFormation, k8s, Dockerfile
     enabled: true
     args: []
-  hadolint:                    # every Dockerfile in the tree
+  hadolint: # every Dockerfile in the tree
     enabled: true
     args: []
   # Your own checks — anything that writes SARIF:
@@ -25,9 +25,9 @@ scanners:
   #     command: node scripts/compose-audit.js --sarif-out {output}
 
 gate:
-  fail_on: new-critical        # new-critical | new-high | any-new | never
-
-upload:
-  mode: auto                   # auto: report on the default branch, check elsewhere,
-                               # off when running locally. Also: report | check | off
-  partial: false               # true for diff-limited scans (backend skips auto-close)
+  fail_on:
+    new-critical # new-critical | new-high | any-new | never
+    # On a merge request this only counts findings
+    # in files the change touches. Everywhere else
+    # (default-branch pushes, scheduled sweeps) it
+    # counts everything the scan finds.
