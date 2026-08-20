@@ -16,9 +16,12 @@
 #   the job log.
 #
 # A merge-request pipeline gates only on findings in files the MR actually
-# touches. Every other pipeline (a push to the default branch, a scheduled
-# sweep) gates on everything the scan finds — that's what lets a nightly
-# dependency scan fail at all, since nothing "changed" that day.
+# touches. A default-branch push or a scheduled sweep gates on everything
+# the scan finds — that's what lets a nightly dependency scan fail at all,
+# since nothing "changed" that day. A tag/release pipeline never gates: the
+# tagged commit was already scanned and gated on its merge request, so
+# re-running an unscoped sweep here would fail releases over pre-existing,
+# unrelated CVEs instead of anything that release actually changed.
 #
 # If the image is private (ghcr packages are private unless the organization
 # allows public ones), add a group variable so the runner can pull it:

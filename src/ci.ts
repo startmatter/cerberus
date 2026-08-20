@@ -40,9 +40,11 @@ export function detectCi(cwd: string, env: Env = process.env): CiContext {
     const isMr = env.CI_PIPELINE_SOURCE === "merge_request_event";
     const scope: CiContext["scope"] = isMr
       ? "merge_request"
-      : env.CI_PIPELINE_SOURCE === "schedule"
-        ? "schedule"
-        : "default_branch";
+      : env.CI_COMMIT_TAG
+        ? "tag"
+        : env.CI_PIPELINE_SOURCE === "schedule"
+          ? "schedule"
+          : "default_branch";
     // GitLab hands us the MR's actual diff base directly — far more accurate
     // than CI_COMMIT_BEFORE_SHA, which only reflects the most recent push
     // and under-reports across multi-push MRs.
@@ -67,9 +69,11 @@ export function detectCi(cwd: string, env: Env = process.env): CiContext {
       env.GITHUB_EVENT_NAME === "pull_request_target";
     const scope: CiContext["scope"] = isPr
       ? "merge_request"
-      : env.GITHUB_EVENT_NAME === "schedule"
-        ? "schedule"
-        : "default_branch";
+      : env.GITHUB_REF?.startsWith("refs/tags/")
+        ? "tag"
+        : env.GITHUB_EVENT_NAME === "schedule"
+          ? "schedule"
+          : "default_branch";
     // GitHub's checkout has no PR-base SHA handed to us directly — try the
     // merge-base against the fetched base branch ref; fall back to the plain
     // last-commit diff (today's behavior) if that ref isn't available.

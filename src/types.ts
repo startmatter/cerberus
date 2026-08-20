@@ -41,15 +41,18 @@ export interface CerberusConfig {
  * Where and what we are scanning — from CI env vars or local git.
  *
  * `scope` drives the gate: on a `merge_request` it filters findings down to
- * files the change actually touches (`changedFiles`); every other scope (a
- * push to the default branch, a scheduled sweep, a local run) gates on
- * everything found, unscoped — a nightly dependency scan exists precisely to
- * catch new CVEs in code nobody touched, so it must not be diff-scoped away
- * to nothing.
+ * files the change actually touches (`changedFiles`); a `default_branch`
+ * push or a scheduled sweep gates on everything found, unscoped — a nightly
+ * dependency scan exists precisely to catch new CVEs in code nobody
+ * touched, so it must not be diff-scoped away to nothing. `tag` (a release
+ * pipeline) and `local` never gate at all: the tagged commit was already
+ * scanned and gated on its merge request, and re-running an unscoped sweep
+ * on every release would fail deploys over pre-existing, unrelated CVEs
+ * instead of anything that release actually changed.
  */
 export interface CiContext {
   provider: "gitlab" | "github" | "local";
-  scope: "merge_request" | "default_branch" | "schedule" | "local";
+  scope: "merge_request" | "default_branch" | "schedule" | "tag" | "local";
   repo: string;
   branch: string;
   defaultBranch: string;

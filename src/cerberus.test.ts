@@ -87,6 +87,16 @@ describe("detectCi", () => {
     expect(ctx.scope).toBe("schedule");
   });
 
+  it("scopes a GitLab tag pipeline, even though its pipeline source is 'push'", () => {
+    const ctx = detectCi("/tmp", {
+      GITLAB_CI: "true",
+      CI_PIPELINE_SOURCE: "push",
+      CI_COMMIT_TAG: "v1.1.0",
+      CI_PROJECT_NAME: "web",
+    });
+    expect(ctx.scope).toBe("tag");
+  });
+
   it("reads GitHub env and prefers the PR head branch", () => {
     const ctx = detectCi("/tmp", {
       GITHUB_ACTIONS: "true",
@@ -109,6 +119,16 @@ describe("detectCi", () => {
       GITHUB_EVENT_NAME: "schedule",
     });
     expect(ctx.scope).toBe("schedule");
+  });
+
+  it("scopes a GitHub tag push", () => {
+    const ctx = detectCi("/tmp", {
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "startmatter/web",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_REF: "refs/tags/v1.1.0",
+    });
+    expect(ctx.scope).toBe("tag");
   });
 
   it("falls back to local git", () => {
