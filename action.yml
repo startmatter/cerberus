@@ -32,6 +32,13 @@ inputs:
       permission on the job). Leave empty for a public image.
     required: false
     default: ${{ github.token }}
+  pull:
+    description: >
+      Docker pull policy (always | missing | never). Set to "never" to run a
+      locally-built image tag that was never pushed to a registry — "always"
+      would try to resolve it remotely and fail.
+    required: false
+    default: always
 
 runs:
   using: composite
@@ -75,7 +82,7 @@ runs:
         fi
         gate_args=""
         if [ "${{ inputs.gate }}" = "false" ]; then gate_args="--no-gate"; fi
-        docker run --rm --pull always $dns_args \
+        docker run --rm --pull "${{ inputs.pull }}" $dns_args \
           -v "${{ github.workspace }}:/src" \
           -v "${GITHUB_STEP_SUMMARY}:/tmp/summary.md" \
           -w "/src/${{ inputs.path }}" \
