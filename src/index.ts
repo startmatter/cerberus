@@ -100,10 +100,18 @@ async function main() {
   const findings = flattenFindings(sarif);
   console.log(renderTable(findings, process.stdout.isTTY ?? false));
 
-  const noGate = values["no-gate"] || ctx.provider === "local";
+  // A release/deploy pipeline is downstream of the merge request that
+  // already scanned and gated this exact commit — re-running an unscoped
+  // sweep here would fail every release over pre-existing, unrelated CVEs
+  // rather than anything that release changed. Still worth running for
+  // visibility, just never blocking.
+  const noGate =
+    values["no-gate"] || ctx.provider === "local" || ctx.scope === "tag";
   if (noGate) {
     console.error(
-      "cerberus: gate skipped (local run — pass --config for CI-detected env, or this is intentional)",
+      ctx.scope === "tag"
+        ? "cerberus: gate skipped (release/tag pipeline — already gated on its merge request)"
+        : "cerberus: gate skipped (local run — pass --config for CI-detected env, or this is intentional)",
     );
     return;
   }

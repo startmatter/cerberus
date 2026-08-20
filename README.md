@@ -10,7 +10,7 @@
 
 ## Why another scanner wrapper
 
-Running scanners in CI is easy. Living with the results is not: the first scan dumps hundreds of findings and every pipeline goes red. Cerberus stays fully standalone — no backend, no tracker, no tasks — and scopes the gate instead: a merge request only fails on findings in the files it actually touches, so a pre-existing backlog never blocks a merge. Every other run (a push to the default branch, a scheduled sweep) gates on everything found, which is what lets a nightly dependency scan do its job — new CVEs land in code nobody touched, so a diff-scoped gate would never catch them.
+Running scanners in CI is easy. Living with the results is not: the first scan dumps hundreds of findings and every pipeline goes red. Cerberus stays fully standalone — no backend, no tracker, no tasks — and scopes the gate instead: a merge request only fails on findings in the files it actually touches, so a pre-existing backlog never blocks a merge. A default-branch push or a scheduled sweep gates on everything found, which is what lets a nightly dependency scan do its job — new CVEs land in code nobody touched, so a diff-scoped gate would never catch them. A tag/release pipeline never gates at all — that commit already earned its gate on the merge request; re-scanning it unscoped would fail releases over unrelated, pre-existing CVEs instead of anything the release changed.
 
 ## How it works
 
@@ -108,7 +108,7 @@ failed, 2 runtime error.
 ## Design principles
 
 - **Fully standalone.** No backend, no tracker, no state carried between runs. Every run scans everything it can see and decides everything for itself.
-- **Scoped gate.** A merge request fails only on findings in files it touches. A pre-existing backlog elsewhere never blocks a merge. Non-MR runs (default-branch pushes, scheduled sweeps) gate on everything — that's the whole point of a nightly scan.
+- **Scoped gate.** A merge request fails only on findings in files it touches. A pre-existing backlog elsewhere never blocks a merge. Default-branch pushes and scheduled sweeps gate on everything — that's the whole point of a nightly scan. Tag/release pipelines never gate — that commit already earned its gate on the merge request.
 - **Says what it found.** Every run writes a report to the job summary (GitHub) or prints to the job log; on a pull/merge request it also posts the report as a comment (replacing its own previous one), with each finding's severity and location.
 - **No second UI.** Triage happens by fixing the code and re-running the pipeline — there's nothing else to close or suppress.
 
